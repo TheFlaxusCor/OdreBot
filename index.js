@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// SECCIÓN 2️⃣: LIMPIEZA PROFUNDA DE BLOQUEOS (Error 21)
+// SECCIÓN 2️⃣: LIMPIEZA PROFUNDA DE BLOQUEOS (Error 21 - Fix Symlinks)
 // ==========================================
 const authDir = path.join(__dirname, '.wwebjs_auth');
 
@@ -18,26 +18,29 @@ function limpiarCandadosRecursivo(directorio) {
     const archivos = fs.readdirSync(directorio);
     archivos.forEach(archivo => {
         const rutaCompleta = path.join(directorio, archivo);
-        const stat = fs.statSync(rutaCompleta);
+        
+        try {
+            // 🔥 CAMBIO CRÍTICO: lstatSync en lugar de statSync
+            // lstatSync lee el enlace simbólico sin intentar seguirlo hacia el contenedor muerto
+            const stat = fs.lstatSync(rutaCompleta);
 
-        if (stat.isDirectory()) {
-            // Recursión para entrar en las subcarpetas de la sesión
-            limpiarCandadosRecursivo(rutaCompleta);
-        } else {
-            // Chromium genera 'SingletonLock', 'SingletonCookie' o 'SingletonSocket'
-            if (archivo.includes('SingletonLock') || archivo.includes('SingletonCookie')) {
-                try {
+            if (stat.isDirectory()) {
+                limpiarCandadosRecursivo(rutaCompleta);
+            } else {
+                if (archivo.includes('SingletonLock') || archivo.includes('SingletonCookie')) {
                     fs.unlinkSync(rutaCompleta);
-                    console.log(`🧹 Candado eliminado críticamente en: ${rutaCompleta}`);
-                } catch (err) {
-                    console.error(`⚠️ No se pudo eliminar el candado en ${rutaCompleta}:`, err.message);
+                    console.log(`🧹 Candado fantasma eliminado en: ${rutaCompleta}`);
                 }
+            }
+        } catch (err) {
+            // Si da ENOENT, el archivo ya desapareció solo. Lo ignoramos y continuamos el arranque.
+            if (err.code !== 'ENOENT') {
+                console.error(`⚠️ Advertencia menor en ${rutaCompleta}:`, err.message);
             }
         }
     });
 }
 
-// Ejecutar la limpieza antes de cualquier inicialización
 console.log('Iniciando escaneo de candados persistentes...');
 limpiarCandadosRecursivo(authDir);
 
