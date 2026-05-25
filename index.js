@@ -71,15 +71,18 @@ const client = new Client({
 // SECCIÓN 3️⃣: EVENTOS DEL BOT 
 // ==========================================
 client.on('qr', qr => {
-    qrData = qr; // Almacenamos el QR para servirlo en la web
-    console.clear();
-    console.log('\n╔════════════════════════════════════════════════╗');
-    console.log('║               🔐 NUEVO CÓDIGO QR              ║');
-    console.log('╚════════════════════════════════════════════════╝\n');
-    console.log('🌐 Abre en tu navegador el dominio de Railway seguido de /qr');
-    console.log('   Ejemplo: https://tu-app-bot.up.railway.app/qr');
-    console.log('\nTambién puedes intentar escanear aquí abajo:');
+    qrData = qr; // Almacena para el endpoint HTTP
+    
+    console.clear(); 
+    console.log('\n╔════════════════════════════════════════╗');
+    console.log('║     🔐 ESCANEA EL CÓDIGO QR 👇         ║');
+    console.log('╚════════════════════════════════════════╝\n');
+    
     qrcodeTerminal.generate(qr, { small: true }); 
+    
+    const puertoActual = process.env.PORT || 3000;
+    console.log(`\n✨ O accede a http://localhost:${puertoActual}/qr`);
+    console.log('   para ver el código QR en el navegador\n');
 });
 
 client.on('authenticated', () => {
