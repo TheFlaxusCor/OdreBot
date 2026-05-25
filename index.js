@@ -100,7 +100,7 @@ client.on('ready', () => {
 // ==========================================
 client.on('message', async msg => {
     // Si escribes "!id" en cualquier chat o grupo, el bot te responde con el ID
-    if (msg.body === '!id') {
+    if (msg.body === 'hola') {
         const chat = await msg.getChat();
         msg.reply(`🤖 *Info del Chat/Grupo*\nNombre: ${chat.name}\nID: *${chat.id._serialized}*`);
         console.log(`ID Solicitado. El ID de ${chat.name} es: ${chat.id._serialized}`);
