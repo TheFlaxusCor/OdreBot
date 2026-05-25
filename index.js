@@ -94,6 +94,19 @@ client.on('ready', () => {
     console.log('✅ ¡Bot en línea y listo para trabajar!');
 });
 
+
+// ==========================================
+// HERRAMIENTA DE DESARROLLADOR: OBTENER IDs
+// ==========================================
+client.on('message', async msg => {
+    // Si escribes "!id" en cualquier chat o grupo, el bot te responde con el ID
+    if (msg.body === '!id') {
+        const chat = await msg.getChat();
+        msg.reply(`🤖 *Info del Chat/Grupo*\nNombre: ${chat.name}\nID: *${chat.id._serialized}*`);
+        console.log(`ID Solicitado. El ID de ${chat.name} es: ${chat.id._serialized}`);
+    }
+});
+
 // ==========================================
 // SECCIÓN 4️⃣: ENDPOINTS (API REST & VISTA WEB)
 // ==========================================
