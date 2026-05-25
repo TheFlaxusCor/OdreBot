@@ -29,33 +29,6 @@ const client = new Client({
     }
 });
 
-// ... (de aquí hacia abajo, mantienes el resto de tu código intacto: client.on('qr'...), etc.)
-
-// 1. CONFIGURACIÓN DEL BOT Y LA SESIÓN (LocalAuth guarda la sesión en la carpeta .wwebjs_auth)
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        headless: true,
-        executablePath: '/usr/bin/chromium', // 🟢 LA RUTA MÁGICA DE LINUX
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-        ]
-    }
-});
-// 2. GENERACIÓN DEL QR EN TERMINAL
-client.on('qr', (qr) => {
-    qrcode.generate(qr, { small: true });
-    console.log('\n==================================================');
-    console.log('📱 ESCANEA ESTE CÓDIGO QR CON TU WHATSAPP (Dispositivos Vinculados)');
-    console.log('==================================================\n');
-});
-
 // 3. EVENTO: BOT LISTO
 client.on('ready', () => {
     console.log('✅ ¡Bot de WhatsApp de Odrekao en línea y enlazado!');
