@@ -9,7 +9,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        // 🟢 Eliminamos el executablePath. Dejaremos que Puppeteer use su propio motor.
+        executablePath: '/usr/bin/chromium', // 🟢 Con Docker, esta ruta es 100% segura
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
