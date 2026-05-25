@@ -1,9 +1,35 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
+const fs = require('fs'); // 🟢 NUEVO: Importamos fs para leer el sistema
 
 const app = express();
-app.use(express.json()); // Permite al bot entender los JSON que mande FastAPI
+app.use(express.json());
+
+// 🟢 NUEVO: Buscador automático del navegador fantasma
+const chromePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' :
+                   fs.existsSync('/usr/bin/chromium-browser') ? '/usr/bin/chromium-browser' : 
+                   undefined; // Si falla, usa el de Puppeteer nativo (que ahora sí funcionará porque instalamos los gráficos)
+
+// 🟢 CONFIGURACIÓN A PRUEBA DE BALAS
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        headless: true,
+        executablePath: chromePath, // 🟢 Se asigna automáticamente la ruta correcta
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ]
+    }
+});
+
+// ... (de aquí hacia abajo, mantienes el resto de tu código intacto: client.on('qr'...), etc.)
 
 // 1. CONFIGURACIÓN DEL BOT Y LA SESIÓN (LocalAuth guarda la sesión en la carpeta .wwebjs_auth)
 const client = new Client({
