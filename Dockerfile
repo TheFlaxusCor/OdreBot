@@ -1,26 +1,35 @@
-# 1. Usamos la versión exacta de Node que estabas usando (v22)
+# 1. IMAGEN BASE
 FROM node:22-bookworm-slim
 
-# 2. Obligamos al sistema a instalar Chromium nativo
+# 2. INSTALAR CHROMIUM NATIVO Y TINI
 RUN apt-get update && apt-get install -y \
     chromium \
-    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    tini \                               
+    fonts-ipafont-gothic \
+    fonts-wqy-zenhei \
+    fonts-thai-tlwg \
+    fonts-kacst \
+    fonts-freefont-ttf \
+    libxss1 \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. 🟢 NUEVO: Bloqueamos la descarga interna de Puppeteer para evitar errores
+# 3. VARIABLES DE ENTORNO CRÍTICAS
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 4. Creamos la carpeta de trabajo
+# 4. DIRECTORIO DE TRABAJO
 WORKDIR /app
 
-# 5. Copiamos dependencias y hacemos la instalación limpia
+# 5. COPIAR DEPENDENCIAS
 COPY package*.json ./
+
+# 6. INSTALAR DEPENDENCIAS
 RUN npm ci
 
-# 6. Copiamos el resto del código
+# 7. COPIAR CÓDIGO
 COPY . .
 
-# 7. Encendemos el bot
+# 8. COMANDO DE EJECUCIÓN USANDO TINI
+ENTRYPOINT ["/usr/bin/tini", "--"]     
 CMD ["npm", "start"]

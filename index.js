@@ -7,25 +7,50 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
-// 🟢 1. ELIMINADOR DE BLOQUEOS FANTASMAS (Soluciona el Error 21)
+// ==========================================
+// SECCIÓN 2️⃣: LIMPIEZA PROFUNDA DE BLOQUEOS (Error 21)
+// ==========================================
 const authDir = path.join(__dirname, '.wwebjs_auth');
-if (fs.existsSync(authDir)) {
-    const folders = fs.readdirSync(authDir);
-    folders.forEach(folder => {
-        const lockFile = path.join(authDir, folder, 'SingletonLock');
-        if (fs.existsSync(lockFile)) {
-            fs.unlinkSync(lockFile);
-            console.log(`🧹 Candado de Chromium eliminado en la sesión: ${folder}`);
+
+function limpiarCandadosRecursivo(directorio) {
+    if (!fs.existsSync(directorio)) return;
+
+    const archivos = fs.readdirSync(directorio);
+    archivos.forEach(archivo => {
+        const rutaCompleta = path.join(directorio, archivo);
+        const stat = fs.statSync(rutaCompleta);
+
+        if (stat.isDirectory()) {
+            // Recursión para entrar en las subcarpetas de la sesión
+            limpiarCandadosRecursivo(rutaCompleta);
+        } else {
+            // Chromium genera 'SingletonLock', 'SingletonCookie' o 'SingletonSocket'
+            if (archivo.includes('SingletonLock') || archivo.includes('SingletonCookie')) {
+                try {
+                    fs.unlinkSync(rutaCompleta);
+                    console.log(`🧹 Candado eliminado críticamente en: ${rutaCompleta}`);
+                } catch (err) {
+                    console.error(`⚠️ No se pudo eliminar el candado en ${rutaCompleta}:`, err.message);
+                }
+            }
         }
     });
 }
 
-// 🟢 2. CONFIGURACIÓN DEL CLIENTE
+// Ejecutar la limpieza antes de cualquier inicialización
+console.log('Iniciando escaneo de candados persistentes...');
+limpiarCandadosRecursivo(authDir);
+
+// ==========================================
+// SECCIÓN 3️⃣: CONFIGURACIÓN DEL CLIENTE WhatsApp
+// ==========================================
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({
+        dataPath: authDir // Aseguramos que use explícitamente esta ruta
+    }),
     puppeteer: {
         headless: true,
-        executablePath: '/usr/bin/chromium', // Ruta garantizada por Docker
+        executablePath: '/usr/bin/chromium',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -33,7 +58,11 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            // 🔥 ARGUMENTOS CRUCIALES PARA EVITAR EL ERROR 21 EN CONTENEDORES:
+            '--disable-single-click-autofill',
+            '--disable-extensions',
+            '--user-data-dir=/app/.wwebjs_auth', // Forzamos a Chromium a usar exactamente esta ruta mapeada
         ]
     }
 });
