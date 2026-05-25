@@ -9,7 +9,16 @@ app.use(express.json()); // Permite al bot entender los JSON que mande FastAPI
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // ¡Vital para cuando lo subamos a Railway!
+        headless: true, // Asegura que corra sin interfaz gráfica
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ]
     }
 });
 
