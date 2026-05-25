@@ -9,7 +9,8 @@ app.use(express.json()); // Permite al bot entender los JSON que mande FastAPI
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: true, // Asegura que corra sin interfaz gráfica
+        headless: true,
+        executablePath: '/usr/bin/chromium', // 🟢 LA RUTA MÁGICA DE LINUX
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -21,7 +22,6 @@ const client = new Client({
         ]
     }
 });
-
 // 2. GENERACIÓN DEL QR EN TERMINAL
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
