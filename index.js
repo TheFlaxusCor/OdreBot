@@ -92,18 +92,43 @@ client.on('authenticated', () => {
 
 client.on('ready', () => {
     console.log('✅ ¡Bot en línea y listo para trabajar!');
+    console.log('📝 Escribe "hola" para obtener los IDs del chat\n');
 });
 
+client.on('auth_failure', (msg) => {
+    console.error('❌ Falló la autenticación:', msg);
+});
+
+client.on('disconnected', (reason) => {
+    console.log('⚠️ Bot desconectado. Razón:', reason);
+});
 
 // ==========================================
 // HERRAMIENTA DE DESARROLLADOR: OBTENER IDs
 // ==========================================
 client.on('message', async msg => {
-    // Si escribes "!id" en cualquier chat o grupo, el bot te responde con el ID
-    if (msg.body === 'hola') {
-        const chat = await msg.getChat();
-        msg.reply(`🤖 *Info del Chat/Grupo*\nNombre: ${chat.name}\nID: *${chat.id._serialized}*`);
-        console.log(`ID Solicitado. El ID de ${chat.name} es: ${chat.id._serialized}`);
+    try {
+        // Trimear el mensaje y convertir a minúsculas para mayor compatibilidad
+        const mensajeLimpio = msg.body.trim().toLowerCase();
+        
+        console.log(`📨 Mensaje recibido: "${msg.body}" (limpio: "${mensajeLimpio}") de ${msg.from}`);
+        
+        if (mensajeLimpio === 'hola') {
+            const chat = await msg.getChat();
+            const idChat = chat.id._serialized || chat.id;
+            
+            console.log(`✅ Comando HOLA detectado en: ${chat.name} (${idChat})`);
+            
+            await msg.reply(
+                `🤖 *Info del Chat/Grupo*\n` +
+                `Nombre: ${chat.name}\n` +
+                `ID: *${idChat}*`
+            );
+            
+            console.log(`✅ Respuesta enviada a: ${chat.name}`);
+        }
+    } catch (error) {
+        console.error('❌ Error al procesar mensaje:', error.message);
     }
 });
 
@@ -161,7 +186,8 @@ app.get('/status', (req, res) => {
         modulo: "Bot WhatsApp",
         autenticado: client.info ? true : false,
         estado: client.info ? "en_linea" : "esperando_qr",
-        usuario: client.info ? client.info.wid.user : null
+        usuario: client.info ? client.info.wid.user : null,
+        timestamp: new Date().toISOString()
     });
 });
 
@@ -181,14 +207,37 @@ app.post('/notificar', async (req, res) => {
     }
 
     try {
+        // Usar grupoId si se proporciona, sino usar el ID por defecto
         const target = grupoId || '573132391143@c.us';
+        
+        console.log(`📤 Intentando enviar mensaje a ${target}`);
+        console.log(`📝 Contenido: ${mensaje}`);
+        
         await client.sendMessage(target, mensaje);
-        console.log(`✉️ Mensaje enviado a ${target}`);
-        res.status(200).json({ status: 'Mensaje enviado con éxito' });
+        
+        console.log(`✉️ Mensaje enviado exitosamente a ${target}`);
+        res.status(200).json({ 
+            status: 'Mensaje enviado con éxito',
+            target: target,
+            message: mensaje
+        });
     } catch (error) {
-        console.error('❌ Error al enviar:', error);
-        res.status(500).json({ error: 'Fallo al enviar mensaje', detalle: error.message });
+        console.error('❌ Error al enviar:', error.message);
+        res.status(500).json({ 
+            error: 'Fallo al enviar mensaje', 
+            detalle: error.message,
+            target: grupoId || '573132391143@c.us'
+        });
     }
+});
+
+// 4. Endpoint de prueba
+app.get('/test', (req, res) => {
+    res.json({
+        mensaje: '✅ Servidor funcionando correctamente',
+        puerto: process.env.PORT || 8080,
+        timestamp: new Date().toISOString()
+    });
 });
 
 // ==========================================
@@ -200,4 +249,6 @@ client.initialize();
 const PORT = process.env.PORT || 8080; 
 app.listen(PORT, () => {
     console.log(`🚀 Servidor API escuchando en el puerto ${PORT}`);
-});
+    console.log(`📊 Puedes verificar el status en: http://localhost:${PORT}/status`);
+    console.log(`🧪 Prueba el servidor en: http://localhost:${PORT}/test`);
+    });

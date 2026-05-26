@@ -1,7 +1,7 @@
 {
   "name": "odrekao-wp-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bot de WhatsApp con autenticación QR",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
