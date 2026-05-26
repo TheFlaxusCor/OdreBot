@@ -15,11 +15,22 @@ const mensajesProcesados = new Set();
 const authDir = path.join(__dirname, '.wwebjs_auth');
 
 // ==========================================
-// 🛡️ ESCUDO ANTI-CRASH PARA RAILWAY
-// Evita que el contenedor muera si Chromium se desconecta un microsegundo
+// 🛡️ ESCUDO INTELIGENTE (FAIL-FAST)
 // ==========================================
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('⚠️ Promesa rechazada (Ignorada para mantener el bot vivo):', reason);
+    const errorMsg = String(reason).toLowerCase();
+    
+    // ⭐ NUEVO: Si el error es crítico y Chromium colapsa, MATA el proceso.
+    // Railway detectará la caída y reiniciará el contenedor automáticamente fresco.
+    if (errorMsg.includes('target closed') || 
+        errorMsg.includes('session closed') || 
+        errorMsg.includes('execution context was destroyed')) {
+        console.error('\n💀 [CRÍTICO] Chromium colapsó por falta de memoria o inactividad.');
+        console.error('🔄 Forzando reinicio automático del contenedor en Railway...\n');
+        process.exit(1); // Esto dispara el auto-reinicio de Railway
+    } else {
+        console.error('⚠️ Promesa rechazada (Ignorada):', reason);
+    }
 });
 
 // Limpieza rápida de candados corruptos
@@ -46,12 +57,11 @@ limpiarCandados(authDir);
 console.log('\n🤖 INICIANDO BOT FINAL PARA RAILWAY\n');
 
 // ==========================================
-// CLIENTE CON TIMEOUT Y SIN CACHÉ (EVITA SORDERA)
+// CLIENTE CON TIMEOUT Y SIN CACHÉ
 // ==========================================
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
-    // ⭐ CORRECCIÓN 1: Esto evita que WhatsApp recargue la página y el bot se quede estático
     webVersionCache: { 
         type: 'none' 
     },
@@ -70,17 +80,19 @@ const client = new Client({
             '--disable-renderer-backgrounding',
             '--disable-backgrounding-occluded-windows',
             '--disable-software-rasterizer',
-            '--memory-pressure-off'
+            '--memory-pressure-off',
+            // ⭐ NUEVO: Límite estricto de RAM para el proceso de V8 (Chromium)
+            '--js-flags="--max-old-space-size=250"', 
+            '--renderer-process-limit=1'
         ],
-        protocolTimeout: 300000 // 5 MINUTOS para Railway
+        protocolTimeout: 300000 
     }
 });
 
-// Limpiar el historial de mensajes procesados cada hora para liberar RAM
 setInterval(() => {
     mensajesProcesados.clear();
     console.log('🧹 Limpieza de memoria (Set de mensajes) realizada.');
-}, 3600000); // 1 hora
+}, 3600000); 
 
 // ==========================================
 // PROCESAR MENSAJE (CENTRAL)
@@ -88,22 +100,18 @@ setInterval(() => {
 
 async function procesarMensaje(msg) {
     try {
-        // ⭐ Ignorar estados de WhatsApp para no saturar los logs
         if (msg.from === 'status@broadcast') return;
 
-        // ⭐ CORRECCIÓN 2: Usar el ID serializado real de WhatsApp. 
-        // Esto garantiza que NUNCA se confunda un mensaje con otro en los grupos.
         const idUnico = msg.id._serialized;
         
         if (mensajesProcesados.has(idUnico)) {
-            return; // Ya lo procesamos, ignorar
+            return; 
         }
         mensajesProcesados.add(idUnico);
 
         console.log(`\n📨 Mensaje recibido de ${msg.from}`);
         console.log(`   Texto: "${msg.body}"`);
 
-        // Validar si es texto
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
             console.log(`   ⏭️  (no es texto)`);
             return;
@@ -155,12 +163,10 @@ client.on('authenticated', () => {
     qrData = null;
 });
 
-// Detecta los mensajes que te envían TERCEROS y en GRUPOS
 client.on('message', async msg => {
     await procesarMensaje(msg);
 });
 
-// ⭐ CORRECCIÓN 3: Detecta los mensajes que envías TÚ MISMO (sin filtros extraños)
 client.on('message_create', async msg => {
     if(msg.fromMe) {
         await procesarMensaje(msg);
@@ -173,6 +179,22 @@ client.on('ready', async () => {
     console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
     console.log('║   Esperando mensajes de forma nativa   ║');
     console.log('╚════════════════════════════════════════╝\n');
+
+    // ⭐ NUEVO: Latido de corazón (Keep-Alive)
+    // Simula una acción invisible en el navegador cada 1 minuto
+    // para evitar que WhatsApp Web "congele" la pestaña por inactividad
+    setInterval(async () => {
+        try {
+            if (client.pupPage) {
+                await client.pupPage.evaluate(() => {
+                    // Solo mueve el mouse virtualmente para que la web detecte actividad
+                    window.dispatchEvent(new MouseEvent('mousemove'));
+                });
+            }
+        } catch (error) {
+            // Si esto falla, la página murió, dejamos que el unhandledRejection se encargue
+        }
+    }, 60000); 
 });
 
 client.on('auth_failure', (msg) => {
@@ -181,7 +203,11 @@ client.on('auth_failure', (msg) => {
 
 client.on('disconnected', (reason) => {
     botReady = false;
-    console.log(`⚠️  Desconectado: ${reason}`);
+    console.log(`\n⚠️  Desconectado: ${reason}`);
+    
+    // ⭐ NUEVO: Si WhatsApp nos desconecta, nos suicidamos para renacer.
+    console.log('🔄 Reiniciando contenedor para re-vincular sesión...');
+    process.exit(1);
 });
 
 // ==========================================
