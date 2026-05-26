@@ -126,12 +126,11 @@ async function procesarMensaje(msg) {
 // ==========================================
 // EVENTOS
 // ==========================================
-
 client.on('qr', qr => {
     qrData = qr;
     console.clear();
     console.log('\n╔════════════════════════════════════════╗');
-    console.log('║     🔐 ESCANEA EL CÓDIGO QR 👇         ║');
+    console.log('║    🔐 ESCANEA EL CÓDIGO QR 👇        ║');
     console.log('╚════════════════════════════════════════╝\n');
     qrcodeTerminal.generate(qr, { small: true });
     const puerto = process.env.PORT || 3000;
@@ -143,72 +142,33 @@ client.on('authenticated', () => {
     qrData = null;
 });
 
-client.on('ready', async () => {
-    console.log('⏳ Sincronizando...');
-    
-    try {
-        // Obtener chats con timeout
-        const chats = await Promise.race([
-            client.getChats(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('getChats timeout')), 30000)
-            )
-        ]);
+// ⭐ CORRECCIÓN 1: El evento de mensajes va AFUERA del ready
+// De esta forma nos aseguramos que SIEMPRE se registre
+client.on('message', async msg => {
+    console.log(`[EVENT] Mensaje detectado por evento nativo`);
+    await procesarMensaje(msg);
+});
 
-        console.log(`✅ Se encontraron ${chats.length} chats\n`);
-
-        botReady = true;
-
-        // ESTRATEGIA HÍBRIDA: Confiar en eventos nativos + polling de respaldo
-        
-        // Opción 1: Evento message (más confiable en algunos casos)
-        client.on('message', async msg => {
-            console.log(`[EVENT] Mensaje detectado por evento nativo`);
-            await procesarMensaje(msg);
-        });
-
-        // Opción 2: Polling optimizado (más lento pero funciona)
-        // Solo polling a grupos, cada 3 segundos para evitar timeouts
-        chats.filter(c => c.isGroup).forEach(chat => {
-            console.log(`🔄 Iniciando polling para grupo: ${chat.name}`);
-            
-            let ultimoTimestamp = Date.now() / 1000;
-            
-            setInterval(async () => {
-                try {
-                    // Fetch con timeout más largo
-                    const msgs = await Promise.race([
-                        chat.fetchMessages({ limit: 3 }),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('fetch timeout')), 25000)
-                        )
-                    ]);
-
-                    for (const msg of msgs.reverse()) {
-                        // Solo procesar mensajes nuevos
-                        if (msg.timestamp > ultimoTimestamp) {
-                            ultimoTimestamp = msg.timestamp;
-                            await procesarMensaje(msg);
-                        }
-                    }
-                } catch (err) {
-                    // Solo log de errores no-timeout
-                    if (!err.message.includes('timeout')) {
-                        console.log(`⚠️  ${chat.name}: ${err.message}`);
-                    }
-                }
-            }, 3000); // Cada 3 segundos, no 1
-        });
-
-        console.log('\n╔════════════════════════════════════════╗');
-        console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
-        console.log('║   Esperando mensajes con "hola"         ║');
-        console.log('╚════════════════════════════════════════╝\n');
-
-    } catch (error) {
-        console.error(`❌ Error en inicialización: ${error.message}`);
-        botReady = true; // Intentar de todas formas
+// Opcional: Si quieres que también responda a los mensajes que envías TÚ desde tu celular
+client.on('message_create', async msg => {
+    if(msg.fromMe && msg.body.trim().toLowerCase() === 'hola') {
+        console.log(`[EVENT] Mensaje propio detectado`);
+        await procesarMensaje(msg);
     }
+});
+
+client.on('ready', async () => {
+    console.log('⏳ Sincronización inicial completada...');
+    
+    // ⭐ CORRECCIÓN 2: Eliminamos la carga pesada (getChats y el Polling)
+    // Dejamos que WhatsApp envíe los mensajes de forma reactiva (push) en lugar de estar preguntando (pull/polling)
+    
+    botReady = true;
+
+    console.log('\n╔════════════════════════════════════════╗');
+    console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
+    console.log('║   Esperando mensajes de forma nativa   ║');
+    console.log('╚════════════════════════════════════════╝\n');
 });
 
 client.on('auth_failure', (msg) => {
@@ -219,6 +179,7 @@ client.on('disconnected', (reason) => {
     botReady = false;
     console.log(`⚠️  Desconectado: ${reason}`);
 });
+
 
 // ==========================================
 // ENDPOINTS
