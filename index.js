@@ -10,12 +10,19 @@ app.use(express.json());
 
 let qrData = null;
 let botReady = false;
-let ultimosMensajeProcesado = {};
 const mensajesProcesados = new Set();
 
 const authDir = path.join(__dirname, '.wwebjs_auth');
 
-// Limpieza rápida
+// ==========================================
+// 🛡️ ESCUDO ANTI-CRASH PARA RAILWAY
+// Evita que el contenedor muera si Chromium se desconecta un microsegundo
+// ==========================================
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ Promesa rechazada (Ignorada para mantener el bot vivo):', reason);
+});
+
+// Limpieza rápida de candados corruptos
 function limpiarCandados(dir) {
     if (!fs.existsSync(dir)) return;
     try {
@@ -31,9 +38,7 @@ function limpiarCandados(dir) {
                 }
             }
         });
-    } catch (err) {
-        // Silenciar
-    }
+    } catch (err) {}
 }
 
 limpiarCandados(authDir);
@@ -41,11 +46,15 @@ limpiarCandados(authDir);
 console.log('\n🤖 INICIANDO BOT FINAL PARA RAILWAY\n');
 
 // ==========================================
-// CLIENTE CON TIMEOUT EXTENDIDO
+// CLIENTE CON TIMEOUT Y SIN CACHÉ (EVITA SORDERA)
 // ==========================================
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
+    // ⭐ CORRECCIÓN 1: Esto evita que WhatsApp recargue la página y el bot se quede estático
+    webVersionCache: { 
+        type: 'none' 
+    },
     puppeteer: {
         headless: true,
         executablePath: '/usr/bin/chromium',
@@ -60,13 +69,12 @@ const client = new Client({
             '--disable-background-timer-throttling',
             '--disable-renderer-backgrounding',
             '--disable-backgrounding-occluded-windows',
-          
+            '--disable-software-rasterizer',
+            '--memory-pressure-off'
         ],
-        protocolTimeout: 120000 // ⭐ 120 SEGUNDOS - CRÍTICO PARA RAILWAY
+        protocolTimeout: 300000 // 5 MINUTOS para Railway
     }
 });
-
-
 
 // Limpiar el historial de mensajes procesados cada hora para liberar RAM
 setInterval(() => {
@@ -75,25 +83,27 @@ setInterval(() => {
 }, 3600000); // 1 hora
 
 // ==========================================
-// PROCESAR MENSAJE
+// PROCESAR MENSAJE (CENTRAL)
 // ==========================================
 
 async function procesarMensaje(msg) {
     try {
-        const idUnico = `${msg.from}-${msg.timestamp}`;
+        // ⭐ Ignorar estados de WhatsApp para no saturar los logs
+        if (msg.from === 'status@broadcast') return;
+
+        // ⭐ CORRECCIÓN 2: Usar el ID serializado real de WhatsApp. 
+        // Esto garantiza que NUNCA se confunda un mensaje con otro en los grupos.
+        const idUnico = msg.id._serialized;
         
         if (mensajesProcesados.has(idUnico)) {
-            return;
+            return; // Ya lo procesamos, ignorar
         }
         mensajesProcesados.add(idUnico);
-
-        const esGrupo = msg.from.includes('@g.us');
-        const esDelBot = msg.id.fromMe;
 
         console.log(`\n📨 Mensaje recibido de ${msg.from}`);
         console.log(`   Texto: "${msg.body}"`);
 
-
+        // Validar si es texto
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
             console.log(`   ⏭️  (no es texto)`);
             return;
@@ -120,9 +130,8 @@ async function procesarMensaje(msg) {
         }
 
     } catch (error) {
-        // Log solo errores críticos
         if (!error.message.includes('timeout')) {
-            console.error(`❌ Error: ${error.message}`);
+            console.error(`❌ Error al procesar: ${error.message}`);
         }
     }
 }
@@ -146,29 +155,20 @@ client.on('authenticated', () => {
     qrData = null;
 });
 
-// ⭐ CORRECCIÓN 1: El evento de mensajes va AFUERA del ready
-// De esta forma nos aseguramos que SIEMPRE se registre
+// Detecta los mensajes que te envían TERCEROS y en GRUPOS
 client.on('message', async msg => {
-    console.log(`[EVENT] Mensaje detectado por evento nativo`);
     await procesarMensaje(msg);
 });
 
-// Opcional: Si quieres que también responda a los mensajes que envías TÚ desde tu celular
+// ⭐ CORRECCIÓN 3: Detecta los mensajes que envías TÚ MISMO (sin filtros extraños)
 client.on('message_create', async msg => {
-    if(msg.fromMe && msg.body.trim().toLowerCase() === 'hola') {
-        console.log(`[EVENT] Mensaje propio detectado`);
+    if(msg.fromMe) {
         await procesarMensaje(msg);
     }
 });
 
 client.on('ready', async () => {
-    console.log('⏳ Sincronización inicial completada...');
-    
-    // ⭐ CORRECCIÓN 2: Eliminamos la carga pesada (getChats y el Polling)
-    // Dejamos que WhatsApp envíe los mensajes de forma reactiva (push) en lugar de estar preguntando (pull/polling)
-    
     botReady = true;
-
     console.log('\n╔════════════════════════════════════════╗');
     console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
     console.log('║   Esperando mensajes de forma nativa   ║');
@@ -183,7 +183,6 @@ client.on('disconnected', (reason) => {
     botReady = false;
     console.log(`⚠️  Desconectado: ${reason}`);
 });
-
 
 // ==========================================
 // ENDPOINTS
