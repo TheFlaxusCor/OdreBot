@@ -8,56 +8,41 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
-// LOGS EN MEMORIA (para ver desde API)
-let logsEnMemoria = [];
-function logear(msg) {
-    const timestamp = new Date().toLocaleTimeString();
-    const mensaje = `[${timestamp}] ${msg}`;
-    console.log(mensaje);
-    logsEnMemoria.push(mensaje);
-    if (logsEnMemoria.length > 200) logsEnMemoria.shift(); // Mantener últimos 200
-}
-
-logear('═════════════════════════════════════════');
-logear('🤖 INICIANDO BOT EN RAILWAY');
-logear('═════════════════════════════════════════');
-
 let qrData = null;
 let botReady = false;
-let chatsCargados = [];
+let ultimosMensajeProcesado = {};
 const mensajesProcesados = new Set();
 
 const authDir = path.join(__dirname, '.wwebjs_auth');
 
-function limpiarCandados(directorio) {
-    if (!fs.existsSync(directorio)) return;
+// Limpieza rápida
+function limpiarCandados(dir) {
+    if (!fs.existsSync(dir)) return;
     try {
-        const archivos = fs.readdirSync(directorio);
+        const archivos = fs.readdirSync(dir);
         archivos.forEach(archivo => {
-            const rutaCompleta = path.join(directorio, archivo);
-            const stat = fs.lstatSync(rutaCompleta);
+            const ruta = path.join(dir, archivo);
+            const stat = fs.lstatSync(ruta);
             if (stat.isDirectory()) {
-                limpiarCandados(rutaCompleta);
+                limpiarCandados(ruta);
             } else {
-                if (archivo.includes('SingletonLock') || archivo.includes('SingletonCookie')) {
-                    fs.unlinkSync(rutaCompleta);
-                    logear(`🧹 Candado eliminado: ${archivo}`);
+                if (archivo.includes('Lock') || archivo.includes('Cookie')) {
+                    fs.unlinkSync(ruta);
                 }
             }
         });
     } catch (err) {
-        logear(`⚠️ Error limpiando candados: ${err.message}`);
+        // Silenciar
     }
 }
 
-logear('🔍 Limpiando sesión anterior...');
 limpiarCandados(authDir);
 
-// ==========================================
-// CREAR CLIENTE CON LOGGING AGRESIVO
-// ==========================================
+console.log('\n🤖 INICIANDO BOT FINAL PARA RAILWAY\n');
 
-logear('📱 Creando cliente WhatsApp...');
+// ==========================================
+// CLIENTE CON TIMEOUT EXTENDIDO
+// ==========================================
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
@@ -72,23 +57,78 @@ const client = new Client({
             '--no-first-run',
             '--no-zygote',
             '--disable-gpu',
-            '--disable-single-click-autofill',
-            '--disable-extensions',
-            '--user-data-dir=/app/.wwebjs_auth',
-            '--disable-background-timer-throttling', // IMPORTANTE: Para Railway
-            '--disable-renderer-backgrounding', // IMPORTANTE: Para Railway
-            '--disable-backgrounding-occluded-windows' // IMPORTANTE: Para Railway
-        ]
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
+            '--user-data-dir=/app/.wwebjs_auth'
+        ],
+        protocolTimeout: 120000 // ⭐ 120 SEGUNDOS - CRÍTICO PARA RAILWAY
     }
 });
 
 // ==========================================
-// EVENTOS CON LOGGING ULTRA-DETALLADO
+// PROCESAR MENSAJE
+// ==========================================
+
+async function procesarMensaje(msg) {
+    try {
+        const idUnico = `${msg.from}-${msg.timestamp}`;
+        
+        if (mensajesProcesados.has(idUnico)) {
+            return;
+        }
+        mensajesProcesados.add(idUnico);
+
+        const esGrupo = msg.from.includes('@g.us');
+        const esDelBot = msg.id.fromMe;
+
+        console.log(`\n📨 Mensaje recibido de ${msg.from}`);
+        console.log(`   Texto: "${msg.body}"`);
+
+        if (esDelBot) {
+            console.log(`   ⏭️  (es del bot, ignorar)`);
+            return;
+        }
+
+        if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
+            console.log(`   ⏭️  (no es texto)`);
+            return;
+        }
+
+        const limpio = msg.body.trim().toLowerCase();
+
+        if (limpio === 'hola') {
+            console.log(`   ✅ COMANDO DETECTADO`);
+            
+            const chat = await msg.getChat();
+            const idChat = chat.id._serialized || chat.id;
+            
+            console.log(`   Chat: ${chat.name}`);
+            console.log(`   📤 Enviando respuesta...`);
+            
+            await msg.reply(
+                `🤖 *Info*\n` +
+                `Nombre: ${chat.name}\n` +
+                `ID: *${idChat}*`
+            );
+            
+            console.log(`   ✅ Respuesta enviada\n`);
+        }
+
+    } catch (error) {
+        // Log solo errores críticos
+        if (!error.message.includes('timeout')) {
+            console.error(`❌ Error: ${error.message}`);
+        }
+    }
+}
+
+// ==========================================
+// EVENTOS
 // ==========================================
 
 client.on('qr', qr => {
     qrData = qr;
-    logear('📲 QR GENERADO - Escanea ahora');
     console.clear();
     console.log('\n╔════════════════════════════════════════╗');
     console.log('║     🔐 ESCANEA EL CÓDIGO QR 👇         ║');
@@ -99,145 +139,86 @@ client.on('qr', qr => {
 });
 
 client.on('authenticated', () => {
-    logear('✅ AUTENTICACIÓN EXITOSA - Sesión guardada');
+    console.log('✅ Autenticación exitosa');
     qrData = null;
 });
 
 client.on('ready', async () => {
-    logear('⏳ Estado READY detectado - Sincronizando chats...');
+    console.log('⏳ Sincronizando...');
     
     try {
-        // PASO CRÍTICO: Obtener todos los chats
-        logear('🔄 Ejecutando client.getChats()...');
-        const chats = await client.getChats();
-        
-        logear(`✅ Se obtuvieron ${chats.length} chats`);
-        chatsCargados = chats;
+        // Obtener chats con timeout
+        const chats = await Promise.race([
+            client.getChats(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('getChats timeout')), 30000)
+            )
+        ]);
 
-        // Detallar cada chat
-        chats.forEach((chat, index) => {
-            const tipo = chat.isGroup ? '👥 GRUPO' : '👤 PRIVADO';
-            logear(`  [${index + 1}] ${tipo} - ${chat.name} (${chat.id._serialized})`);
+        console.log(`✅ Se encontraron ${chats.length} chats\n`);
+
+        botReady = true;
+
+        // ESTRATEGIA HÍBRIDA: Confiar en eventos nativos + polling de respaldo
+        
+        // Opción 1: Evento message (más confiable en algunos casos)
+        client.on('message', async msg => {
+            console.log(`[EVENT] Mensaje detectado por evento nativo`);
+            await procesarMensaje(msg);
         });
 
-        // INICIAR POLLING
-        if (chats.length > 0) {
-            logear('🔄 INICIANDO POLLING en todos los chats...');
+        // Opción 2: Polling optimizado (más lento pero funciona)
+        // Solo polling a grupos, cada 3 segundos para evitar timeouts
+        chats.filter(c => c.isGroup).forEach(chat => {
+            console.log(`🔄 Iniciando polling para grupo: ${chat.name}`);
             
-            chats.forEach(async (chat) => {
+            let ultimoTimestamp = Date.now() / 1000;
+            
+            setInterval(async () => {
                 try {
-                    logear(`  ▶️  Polling iniciado para: ${chat.name}`);
-                    
-                    // Polling agresivo cada 1 segundo
-                    setInterval(async () => {
-                        try {
-                            const msgs = await chat.fetchMessages({ limit: 5 });
-                            
-                            for (const msg of msgs.reverse()) {
-                                await procesarMensaje(msg, chat);
-                            }
-                        } catch (err) {
-                            // Silenciar errores de timeout
-                            if (!err.message.includes('timeout')) {
-                                logear(`⚠️  Error fetching en ${chat.name}: ${err.message}`);
-                            }
-                        }
-                    }, 1000);
-                    
-                } catch (err) {
-                    logear(`❌ Error iniciando polling para ${chat.name}: ${err.message}`);
-                }
-            });
+                    // Fetch con timeout más largo
+                    const msgs = await Promise.race([
+                        chat.fetchMessages({ limit: 3 }),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('fetch timeout')), 25000)
+                        )
+                    ]);
 
-            botReady = true;
-            logear('╔════════════════════════════════════════╗');
-            logear('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
-            logear('║   Polling iniciado en todos los chats   ║');
-            logear('╚════════════════════════════════════════╝');
-            
-        } else {
-            logear('⚠️  NO SE ENCONTRARON CHATS');
-            logear('💡 Posible causa: El bot no sincronizó los chats correctamente');
-            logear('💡 Solución: Abre WhatsApp en el teléfono que escaneó QR');
-            botReady = true;
-        }
+                    for (const msg of msgs.reverse()) {
+                        // Solo procesar mensajes nuevos
+                        if (msg.timestamp > ultimoTimestamp) {
+                            ultimoTimestamp = msg.timestamp;
+                            await procesarMensaje(msg);
+                        }
+                    }
+                } catch (err) {
+                    // Solo log de errores no-timeout
+                    if (!err.message.includes('timeout')) {
+                        console.log(`⚠️  ${chat.name}: ${err.message}`);
+                    }
+                }
+            }, 3000); // Cada 3 segundos, no 1
+        });
+
+        console.log('\n╔════════════════════════════════════════╗');
+        console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
+        console.log('║   Esperando mensajes con "hola"         ║');
+        console.log('╚════════════════════════════════════════╝\n');
 
     } catch (error) {
-        logear(`❌ ERROR CRÍTICO en ready: ${error.message}`);
-        logear(`Stack: ${error.stack}`);
+        console.error(`❌ Error en inicialización: ${error.message}`);
+        botReady = true; // Intentar de todas formas
     }
 });
 
 client.on('auth_failure', (msg) => {
-    logear(`❌ ❌ FALLO DE AUTENTICACIÓN: ${msg}`);
+    console.error(`❌ Fallo de autenticación: ${msg}`);
 });
 
 client.on('disconnected', (reason) => {
     botReady = false;
-    logear(`⚠️  BOT DESCONECTADO: ${reason}`);
+    console.log(`⚠️  Desconectado: ${reason}`);
 });
-
-// FALLBACK: evento 'message' también
-client.on('message', async msg => {
-    logear(`📡 Evento 'message' detectado (FALLBACK) - ${msg.body}`);
-    await procesarMensaje(msg, null);
-});
-
-// ==========================================
-// FUNCIÓN PROCESAR MENSAJE
-// ==========================================
-
-async function procesarMensaje(msg, chatObj) {
-    try {
-        const idUnico = `${msg.from}-${msg.timestamp}`;
-        
-        if (mensajesProcesados.has(idUnico)) {
-            return;
-        }
-        mensajesProcesados.add(idUnico);
-
-        const esGrupo = msg.from.includes('@g.us') ? '👥' : '👤';
-       
-
-        logear(`\n${'═'.repeat(50)}`);
-        logear(`📨 ${esGrupo} MENSAJE RECIBIDO`);
-        logear(`  De: ${msg.from}`);
-        logear(`  Texto: "${msg.body}"`);
-        logear(`  ¿Es del bot?: ${esDelBot ? 'SÍ (ignorar)' : 'NO'}`);
-
-        if (esDelBot) {
-            logear(`  ⏭️  [Ignorado - es mensaje del bot]`);
-            return;
-        }
-
-        // Procesar
-        const limpio = msg.body.trim().toLowerCase();
-        logear(`  Limpio: "${limpio}"`);
-
-        if (limpio === 'hola') {
-            logear(`  ✅✅✅ ¡¡¡COMANDO DETECTADO!!!`);
-            
-            const chat = chatObj || (await msg.getChat());
-            const idChat = chat.id._serialized || chat.id;
-            
-            logear(`  Chat: ${chat.name}`);
-            logear(`  ID: ${idChat}`);
-            
-            const respuesta = `🤖 *Info*\nNombre: ${chat.name}\nID: *${idChat}*`;
-            
-            logear(`  📤 ENVIANDO RESPUESTA...`);
-            await msg.reply(respuesta);
-            logear(`  ✉️  ✅ RESPUESTA ENVIADA EXITOSAMENTE`);
-        } else {
-            logear(`  ❌ No es 'hola' (es: "${limpio}")`);
-        }
-
-        logear(`${'═'.repeat(50)}\n`);
-
-    } catch (error) {
-        logear(`❌ ERROR procesando: ${error.message}`);
-    }
-}
 
 // ==========================================
 // ENDPOINTS
@@ -245,18 +226,15 @@ async function procesarMensaje(msg, chatObj) {
 
 app.get('/qr', async (req, res) => {
     if (!qrData) {
-        return res.send(`<h2 style="text-align:center;padding-top:20vh;">
-            ✅ Bot autenticado ${botReady ? '✅ LISTO' : '⏳ Iniciando...'}
-        </h2>`);
+        return res.send(`<h2 style="text-align:center;padding-top:20vh;">✅ Autenticado</h2>`);
     }
 
     try {
         const qrImg = await qrcode.toDataURL(qrData);
-        res.send(`<!DOCTYPE html>
-            <html><head><meta charset="UTF-8"><title>Bot QR</title>
+        res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
             <meta http-equiv="refresh" content="10">
-            <style>body{font-family:sans-serif;background:#e5ddd5;display:flex;
-            justify-content:center;align-items:center;height:100vh;margin:0;}
+            <style>body{font-family:sans-serif;background:#e5ddd5;
+            display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}
             .card{background:white;padding:40px;border-radius:15px;
             box-shadow:0 10px 20px rgba(0,0,0,0.1);text-align:center;}
             img{max-width:300px;margin:20px 0;}</style></head>
@@ -264,7 +242,7 @@ app.get('/qr', async (req, res) => {
             <img src="${qrImg}"><p>Escanea con WhatsApp</p></div>
             </body></html>`);
     } catch (err) {
-        res.status(500).send('Error QR');
+        res.status(500).send('Error');
     }
 });
 
@@ -272,71 +250,27 @@ app.get('/status', (req, res) => {
     res.json({
         botReady,
         autenticado: client.info ? true : false,
-        usuario: client.info?.wid?.user || 'N/A',
-        chatsDetectados: chatsCargados.length,
-        pollingActivo: chatsCargados.length > 0
+        usuario: client.info?.wid?.user || 'N/A'
     });
 });
 
-app.get('/chats', (req, res) => {
-    res.json({
-        total: chatsCargados.length,
-        chats: chatsCargados.map(c => ({
-            nombre: c.name,
-            id: c.id._serialized,
-            tipo: c.isGroup ? 'GRUPO' : 'PRIVADO'
-        }))
-    });
-});
+app.post('/notificar', async (req, res) => {
+    if (!botReady) {
+        return res.status(503).json({ error: 'Bot no está listo' });
+    }
 
-// ENDPOINT MÁS IMPORTANTE: Ver logs en vivo
-app.get('/logs', (req, res) => {
-    res.json({
-        logsRecientes: logsEnMemoria,
-        totalLogs: logsEnMemoria.length
-    });
-});
+    const { mensaje, grupoId } = req.body;
+    
+    if (!mensaje || !grupoId) {
+        return res.status(400).json({ error: 'Faltan campos' });
+    }
 
-// Ver último log en HTML (útil para debugging en navegador)
-app.get('/logs-web', (req, res) => {
-    const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Logs Bot</title>
-        <style>
-            body { font-family: monospace; background: #1e1e1e; color: #00ff00; 
-                   padding: 20px; margin: 0; }
-            pre { white-space: pre-wrap; word-wrap: break-word; }
-            .refresh { position: fixed; top: 10px; right: 10px; }
-            button { padding: 10px 20px; cursor: pointer; }
-        </style>
-        <script>
-            function recargar() {
-                fetch('/logs')
-                    .then(r => r.json())
-                    .then(d => {
-                        document.getElementById('logs').textContent = 
-                            d.logsRecientes.join('\\n');
-                        document.getElementById('contador').textContent = 
-                            d.totalLogs + ' logs';
-                    });
-            }
-            setInterval(recargar, 1000);
-            recargar();
-        </script>
-    </head>
-    <body>
-        <div class="refresh">
-            <button onclick="recargar()">🔄 Recargar</button>
-            <p id="contador">0 logs</p>
-        </div>
-        <h2>📋 Logs en Vivo</h2>
-        <pre id="logs">Cargando...</pre>
-    </body>
-    </html>
-    `;
-    res.send(html);
+    try {
+        await client.sendMessage(grupoId, mensaje);
+        res.json({ status: 'Enviado', target: grupoId });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get('/test', (req, res) => {
@@ -347,13 +281,10 @@ app.get('/test', (req, res) => {
 // INICIAR
 // ==========================================
 
-logear('🔌 Inicializando cliente...');
+console.log('📱 Inicializando cliente...\n');
 client.initialize();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    logear(`\n🚀 SERVIDOR ESCUCHANDO EN PUERTO ${PORT}`);
-    logear(`📋 Ver logs: http://localhost:${PORT}/logs-web`);
-    logear(`📊 API Status: http://localhost:${PORT}/status`);
-    logear(`🗂️  Chats: http://localhost:${PORT}/chats\n`);
+    console.log(`🚀 Servidor escuchando en puerto ${PORT}\n`);
 });
