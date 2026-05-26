@@ -60,11 +60,19 @@ const client = new Client({
             '--disable-background-timer-throttling',
             '--disable-renderer-backgrounding',
             '--disable-backgrounding-occluded-windows',
-            '--user-data-dir=/app/.wwebjs_auth'
+          
         ],
         protocolTimeout: 120000 // ⭐ 120 SEGUNDOS - CRÍTICO PARA RAILWAY
     }
 });
+
+
+
+// Limpiar el historial de mensajes procesados cada hora para liberar RAM
+setInterval(() => {
+    mensajesProcesados.clear();
+    console.log('🧹 Limpieza de memoria (Set de mensajes) realizada.');
+}, 3600000); // 1 hora
 
 // ==========================================
 // PROCESAR MENSAJE
@@ -85,10 +93,6 @@ async function procesarMensaje(msg) {
         console.log(`\n📨 Mensaje recibido de ${msg.from}`);
         console.log(`   Texto: "${msg.body}"`);
 
-        if (esDelBot) {
-            console.log(`   ⏭️  (es del bot, ignorar)`);
-            return;
-        }
 
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
             console.log(`   ⏭️  (no es texto)`);
