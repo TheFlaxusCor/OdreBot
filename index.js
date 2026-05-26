@@ -11,14 +11,14 @@ app.use(express.json());
 let qrData = null;
 let botReady = false;
 
-// ==========================================
-// SECCIÓN 1️⃣: LIMPIEZA PROFUNDA
-// ==========================================
+// Sistema de caché para rastrear mensajes procesados
+const mensajesProcesados = new Set();
+const intervalosPolling = new Map();
+
 const authDir = path.join(__dirname, '.wwebjs_auth');
 
 function limpiarCandadosRecursivo(directorio) {
     if (!fs.existsSync(directorio)) return;
-
     const archivos = fs.readdirSync(directorio);
     archivos.forEach(archivo => {
         const rutaCompleta = path.join(directorio, archivo);
@@ -34,18 +34,15 @@ function limpiarCandadosRecursivo(directorio) {
             }
         } catch (err) {
             if (err.code !== 'ENOENT') {
-                console.error(`⚠️ Error en ${rutaCompleta}:`, err.message);
+                console.error(`⚠️ Error: ${err.message}`);
             }
         }
     });
 }
 
-console.log('🔍 Escaneando candados persistentes...');
+console.log('🔍 Limpiando...');
 limpiarCandadosRecursivo(authDir);
 
-// ==========================================
-// SECCIÓN 2️⃣: CONFIGURACIÓN DEL CLIENT
-// ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
     puppeteer: {
@@ -67,78 +64,58 @@ const client = new Client({
 });
 
 // ==========================================
-// SECCIÓN 3️⃣: EVENTOS DEL BOT
+// FUNCIÓN PRINCIPAL: Procesar un mensaje
 // ==========================================
-client.on('qr', qr => {
-    qrData = qr;
-    console.clear();
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║     🔐 ESCANEA EL CÓDIGO QR 👇         ║');
-    console.log('╚════════════════════════════════════════╝\n');
-    qrcodeTerminal.generate(qr, { small: true });
-    const puertoActual = process.env.PORT || 3000;
-    console.log(`\n✨ O accede a http://localhost:${puertoActual}/qr`);
-    console.log('   para ver el código QR en el navegador\n');
-});
-
-client.on('authenticated', () => {
-    console.log('✅ Autenticación exitosa guardada');
-    qrData = null;
-});
-
-client.on('ready', () => {
-    botReady = true;
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
-    console.log('╚════════════════════════════════════════╝\n');
-    console.log('📝 El bot ahora está escuchando mensajes en todos los chats');
-    console.log('📝 Envía "hola" en cualquier chat o grupo\n');
-});
-
-client.on('auth_failure', (msg) => {
-    console.error('❌ ERROR DE AUTENTICACIÓN:', msg);
-});
-
-client.on('disconnected', (reason) => {
-    botReady = false;
-    console.log('⚠️ Bot desconectado. Razón:', reason);
-});
-
-// ==========================================
-// SECCIÓN 4️⃣: MANEJADOR DE MENSAJES
-// ==========================================
-client.on('message', async msg => {
+async function procesarMensaje(msg) {
     try {
-        // Log IMPORTANTE: Todos los mensajes
+        const idUnico = `${msg.id.fromMe ? 'SENT' : msg.from}-${msg.timestamp}`;
+        
+        // Evitar procesar el mismo mensaje dos veces
+        if (mensajesProcesados.has(idUnico)) {
+            return;
+        }
+        mensajesProcesados.add(idUnico);
+
         const tipoMensaje = msg.type || 'desconocido';
         const esGrupo = msg.from.includes('@g.us') ? '👥 GRUPO' : '👤 PRIVADO';
-        
-        console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        const esDelBot = msg.id.fromMe;
+
+        console.log(`\n${'═'.repeat(50)}`);
         console.log(`📨 MENSAJE RECIBIDO`);
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`${'═'.repeat(50)}`);
         console.log(`📱 Tipo: ${esGrupo}`);
         console.log(`👤 De: ${msg.from}`);
-        console.log(`📝 Texto original: "${msg.body}"`);
-        console.log(`⏰ Tipo de mensaje: ${tipoMensaje}`);
-        
-        // Ignorar mensajes multimedia
-        if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
-            console.log(`⏭️  Ignorando (no es texto)`);
+        console.log(`🤖 ¿Es mío?: ${esDelBot ? 'SÍ' : 'NO'}`);
+        console.log(`📝 Texto: "${msg.body}"`);
+        console.log(`⏰ Timestamp: ${new Date(msg.timestamp * 1000).toLocaleString()}`);
+
+        // IMPORTANTE: Ignorar los mensajes que el bot ENVÍA
+        if (esDelBot) {
+            console.log(`⏭️  Ignorando (es mensaje del bot)`);
+            console.log(`${'═'.repeat(50)}\n`);
             return;
         }
 
-        // Limpiar y normalizar el mensaje
+        // Ignorar mensajes multimedia
+        if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
+            console.log(`⏭️  Ignorando (tipo: ${tipoMensaje})`);
+            console.log(`${'═'.repeat(50)}\n`);
+            return;
+        }
+
+        // Procesar el mensaje
         const mensajeLimpio = msg.body.trim().toLowerCase();
         console.log(`🔤 Texto limpio: "${mensajeLimpio}"`);
 
-        // Responder a "hola"
         if (mensajeLimpio === 'hola') {
+            console.log(`✅ ¡¡COMANDO DETECTADO!!: "hola"`);
+            
             const chat = await msg.getChat();
             const idChat = chat.id._serialized || chat.id;
             
-            console.log(`✅ COMANDO DETECTADO: "hola"`);
             console.log(`📍 Chat: ${chat.name}`);
             console.log(`🔑 ID: ${idChat}`);
+            console.log(`👥 Es grupo: ${chat.isGroup}`);
 
             const respuesta = 
                 `🤖 *Info del Chat/Grupo*\n` +
@@ -147,38 +124,130 @@ client.on('message', async msg => {
                 `Tipo: ${chat.isGroup ? '👥 Grupo' : '👤 Privado'}`;
 
             await msg.reply(respuesta);
-            console.log(`✉️  Respuesta enviada correctamente`);
+            console.log(`✉️  ✅ RESPUESTA ENVIADA`);
         } else {
-            console.log(`❌ No coincide con comando "hola"`);
+            console.log(`❌ No coincide (esperaba "hola")`);
         }
-        
-        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+        console.log(`${'═'.repeat(50)}\n`);
 
     } catch (error) {
-        console.error('\n❌ ERROR AL PROCESAR MENSAJE:');
-        console.error('Nombre:', error.name);
-        console.error('Mensaje:', error.message);
-        console.error('Stack:', error.stack);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        console.error(`\n❌ ERROR PROCESANDO:`, error.message);
+    }
+}
+
+// ==========================================
+// SISTEMA DE POLLING PARA GRUPOS
+// ==========================================
+async function iniciarPollingDeGrupos() {
+    if (!botReady) return;
+
+    try {
+        const chats = await client.getChats();
+        
+        chats.forEach(chat => {
+            // Solo hacer polling a grupos
+            if (!chat.isGroup) return;
+
+            const chatId = chat.id._serialized;
+
+            // Si ya tiene un intervalo, no crear otro
+            if (intervalosPolling.has(chatId)) return;
+
+            // Crear intervalo de polling para este grupo
+            const intervalo = setInterval(async () => {
+                try {
+                    // Obtener los últimos 10 mensajes del grupo
+                    const mensajes = await chat.fetchMessages({ limit: 10 });
+                    
+                    // Procesar cada uno
+                    for (const msg of mensajes.reverse()) {
+                        await procesarMensaje(msg);
+                    }
+                } catch (err) {
+                    // Silencioso - solo logging si hay error crítico
+                    if (err.message.includes('timeout')) {
+                        console.log(`⚠️  Timeout en polling de ${chat.name}`);
+                    }
+                }
+            }, 2000); // Polling cada 2 segundos
+
+            intervalosPolling.set(chatId, intervalo);
+            console.log(`🔄 Polling iniciado para grupo: ${chat.name}`);
+        });
+
+    } catch (error) {
+        console.error(`❌ Error en polling:`, error.message);
+    }
+}
+
+// ==========================================
+// EVENTOS DEL CLIENTE
+// ==========================================
+
+client.on('qr', qr => {
+    qrData = qr;
+    console.clear();
+    console.log('\n╔════════════════════════════════════════╗');
+    console.log('║     🔐 ESCANEA EL CÓDIGO QR 👇         ║');
+    console.log('╚════════════════════════════════════════╝\n');
+    qrcodeTerminal.generate(qr, { small: true });
+    const puertoActual = process.env.PORT || 3000;
+    console.log(`\n✨ O entra a http://localhost:${puertoActual}/qr`);
+});
+
+client.on('authenticated', () => {
+    console.log('\n✅ Autenticación exitosa');
+    qrData = null;
+});
+
+client.on('ready', () => {
+    botReady = true;
+    console.log('\n╔════════════════════════════════════════╗');
+    console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
+    console.log('║   Usando POLLING para grupos            ║');
+    console.log('╚════════════════════════════════════════╝\n');
+    
+    // Iniciar polling
+    iniciarPollingDeGrupos();
+    
+    // Re-hacer polling cada 10 segundos para detectar nuevos grupos
+    setInterval(iniciarPollingDeGrupos, 10000);
+});
+
+// FALLBACK: Usar evento 'message' también (por si funciona en algún caso)
+client.on('message', async msg => {
+    console.log(`📡 Evento 'message' disparado (FALLBACK)`);
+    await procesarMensaje(msg);
+});
+
+// Escuchar cambios en chats
+client.on('chat_archive', async (chat) => {
+    console.log(`💬 Chat actualizado: ${chat.name}`);
+    if (chat.isGroup && !intervalosPolling.has(chat.id._serialized)) {
+        await iniciarPollingDeGrupos();
     }
 });
 
-// Evento de ACK (confirmación de envío)
-client.on('message_ack', (msg, ack) => {
-    console.log(`📤 ACK de mensaje:`, ack);
+client.on('auth_failure', (msg) => {
+    console.error(`\n❌ ERROR DE AUTENTICACIÓN:`, msg);
+});
+
+client.on('disconnected', (reason) => {
+    botReady = false;
+    console.log(`\n⚠️  Bot desconectado: ${reason}`);
+    console.log(`🔄 Intentando reconectar...`);
 });
 
 // ==========================================
-// SECCIÓN 5️⃣: ENDPOINTS REST
+// ENDPOINTS REST
 // ==========================================
 
-// Endpoint: Ver QR
 app.get('/qr', async (req, res) => {
     if (!qrData) {
         return res.send(`
             <h2 style="font-family:sans-serif; text-align:center; padding-top: 20vh;">
-                ✅ El bot está autenticado<br>
-                ${botReady ? '✅ BOT LISTO' : '⏳ Inicializando...'}
+                ✅ Bot autenticado ${botReady ? '✅ LISTO' : '⏳ Inicializando...'}
             </h2>
         `);
     }
@@ -190,25 +259,23 @@ app.get('/qr', async (req, res) => {
             <html lang="es">
             <head>
                 <meta charset="UTF-8">
-                <title>Odrekao Bot - QR</title>
-                <meta http-equiv="refresh" content="20">
+                <title>Bot - QR</title>
+                <meta http-equiv="refresh" content="10">
                 <style>
-                    body { font-family: 'Segoe UI', sans-serif; background: #e5ddd5; 
+                    body { font-family: sans-serif; background: #e5ddd5; 
                            display: flex; justify-content: center; align-items: center; 
                            height: 100vh; margin: 0; }
                     .card { background: white; padding: 40px; border-radius: 15px; 
                             box-shadow: 0 10px 20px rgba(0,0,0,0.1); text-align: center; }
-                    h2 { color: #075e54; margin-top: 0; }
-                    img { border: 10px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.1); 
-                          margin: 20px 0; max-width: 400px; }
+                    h2 { color: #075e54; }
+                    img { max-width: 300px; margin: 20px 0; }
                 </style>
             </head>
             <body>
                 <div class="card">
-                    <h2>🤖 Odrekao WhatsApp Bot</h2>
-                    <p>Abre WhatsApp → Dispositivos vinculados → Escanea:</p>
-                    <img src="${qrImage}" alt="QR">
-                    <p style="color: #888; font-size: 0.9em;">🔄 Se recarga automáticamente</p>
+                    <h2>🤖 Bot WhatsApp</h2>
+                    <img src="${qrImage}">
+                    <p>Escanea con WhatsApp → Dispositivos vinculados</p>
                 </div>
             </body>
             </html>
@@ -218,121 +285,68 @@ app.get('/qr', async (req, res) => {
     }
 });
 
-// Endpoint: Status del bot
 app.get('/status', (req, res) => {
     res.json({
-        proyecto: "Odrekao",
-        modulo: "Bot WhatsApp",
+        botReady: botReady,
         autenticado: client.info ? true : false,
-        botListo: botReady,
-        usuario: client.info ? client.info.wid.user : null,
+        usuario: client.info?.wid?.user || null,
+        gruposEnPolling: intervalosPolling.size,
         timestamp: new Date().toISOString()
     });
 });
 
-// Endpoint: NUEVO - Listar todos los chats
 app.get('/chats', async (req, res) => {
-    try {
-        if (!botReady) {
-            return res.status(503).json({ error: 'Bot aún no está listo' });
-        }
+    if (!botReady) {
+        return res.status(503).json({ error: 'Bot no está listo' });
+    }
 
+    try {
         const chats = await client.getChats();
         const chatList = chats.map(chat => ({
             nombre: chat.name,
             id: chat.id._serialized,
             esGrupo: chat.isGroup,
-            mensajesSinLeer: chat.unreadCount
+            enPolling: intervalosPolling.has(chat.id._serialized)
         }));
 
-        res.json({
-            total: chats.length,
-            chats: chatList
-        });
+        res.json({ total: chats.length, chats: chatList });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Endpoint: NUEVO - Debug de mensajes (ver últimos mensajes recibidos)
-app.get('/debug/chats', async (req, res) => {
-    try {
-        if (!botReady) {
-            return res.status(503).json({ error: 'Bot no está listo' });
-        }
-
-        const chats = await client.getChats();
-        const detalles = [];
-
-        for (const chat of chats.slice(0, 10)) {
-            const mensajes = await chat.fetchMessages({ limit: 3 });
-            detalles.push({
-                nombre: chat.name,
-                id: chat.id._serialized,
-                esGrupo: chat.isGroup,
-                ultimosMensajes: mensajes.map(m => ({
-                    autor: m.from,
-                    texto: m.body.substring(0, 50),
-                    timestamp: new Date(m.timestamp * 1000).toISOString()
-                }))
-            });
-        }
-
-        res.json(detalles);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Endpoint: Enviar mensaje
 app.post('/notificar', async (req, res) => {
     if (!botReady) {
-        return res.status(503).json({
-            error: 'El bot no está listo',
-            estado: 'inicializando'
-        });
+        return res.status(503).json({ error: 'Bot no está listo' });
     }
 
     const { mensaje, grupoId } = req.body;
     
-    if (!mensaje) {
-        return res.status(400).json({ error: 'Campo "mensaje" requerido' });
-    }
-
-    if (!grupoId) {
-        return res.status(400).json({ error: 'Campo "grupoId" requerido' });
+    if (!mensaje || !grupoId) {
+        return res.status(400).json({ error: 'Faltan campos requeridos' });
     }
 
     try {
-        console.log(`📤 Enviando a ${grupoId}: ${mensaje}`);
         await client.sendMessage(grupoId, mensaje);
         res.json({ status: 'Enviado', target: grupoId });
     } catch (error) {
-        console.error('❌ Error:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Endpoint: Test
 app.get('/test', (req, res) => {
-    res.json({
-        ok: true,
-        botReady: botReady,
-        autenticado: client.info ? true : false,
-        puerto: process.env.PORT || 8080
-    });
+    res.json({ ok: true, botReady: botReady });
 });
 
 // ==========================================
-// SECCIÓN 6️⃣: INICIAR SERVIDOR
+// INICIAR SERVIDOR
 // ==========================================
+
 client.initialize();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`\n🚀 Servidor escuchando en puerto ${PORT}`);
-    console.log(`📊 Ver status: http://localhost:${PORT}/status`);
-    console.log(`🗂️  Ver chats: http://localhost:${PORT}/chats`);
-    console.log(`🔍 Ver debug: http://localhost:${PORT}/debug/chats`);
-    console.log(`🧪 Test: http://localhost:${PORT}/test\n`);
+    console.log(`\n🚀 Servidor en puerto ${PORT}`);
+    console.log(`📊 Status: http://localhost:${PORT}/status`);
+    console.log(`🗂️  Chats: http://localhost:${PORT}/chats\n`);
 });
