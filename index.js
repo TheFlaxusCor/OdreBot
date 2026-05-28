@@ -55,11 +55,10 @@ limpiarCandados(authDir);
 console.log('\n🤖 INICIANDO BOT OBRERO PARA RAILWAY\n');
 
 // ==========================================
-// 🛠️ CLIENTE CON VERSIÓN FIJA Y CONGELADA
+// 🛠️ CLIENTE CON CAMUFLAJE DE USER-AGENT
 // ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
-    // Fijamos versión para evitar que los cambios diarios de Meta rompan los eventos
     webVersion: '2.2412.54', 
     webVersionCache: { 
         type: 'remote',
@@ -82,7 +81,9 @@ const client = new Client({
             '--disable-software-rasterizer',
             '--memory-pressure-off',
             '--js-flags="--max-old-space-size=250"', 
-            '--renderer-process-limit=1'
+            '--renderer-process-limit=1',
+            // 🕶️ CAMUFLAJE: Evita que WhatsApp Web detecte que es un bot automatizado
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000 
     }
@@ -118,7 +119,6 @@ async function procesarMensaje(msg) {
         
         console.log(`    🧠 Consultando al cerebro en FastAPI...`);
         
-        // 🔗 CONEXIÓN ASEGURADA: Limpiamos barras y forzamos la ruta del endpoint correcto
         const baseUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev';
         const backendUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/webhook`;
         const apiKey = process.env.BOT_API_KEY || 'odrekao_super_secreto';
@@ -145,7 +145,6 @@ async function procesarMensaje(msg) {
 
         const data = await response.json();
 
-        // El bot obedece ciegamente lo que diga FastAPI
         if (data.responder && data.texto) {
             console.log(`    📤 Enviando respuesta dictada por el backend...`);
             await msg.reply(data.texto);
@@ -172,7 +171,7 @@ client.on('qr', qr => {
     console.log('╚════════════════════════════════════════╝\n');
     qrcodeTerminal.generate(qr, { small: true });
     const puerto = process.env.PORT || 3000;
-    console.log(`\n✨ O entra a http://localhost:${puerto}/qr\n`);
+    console.log(`\n✨ O entra a tu URL de Railway en /qr\n`);
 });
 
 client.on('authenticated', () => {
@@ -222,6 +221,32 @@ client.on('disconnected', (reason) => {
 // ==========================================
 // ENDPOINTS
 // ==========================================
+
+// 📷 ENDPOINT DE DIAGNÓSTICO VISUAL VISUAL 
+app.get('/screenshot', async (req, res) => {
+    if (!client.pupPage) {
+        return res.status(400).send("<h3>Navegador no inicializado aún</h3>");
+    }
+    try {
+        const screenshot = await client.pupPage.screenshot({ encoding: 'base64' });
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Bot Monitor</title></head>
+            <body style="background:#222; color:white; font-family:sans-serif; text-align:center; margin:20px;">
+                <h2>Ojos del Bot (Vista interna de Chromium)</h2>
+                <div style="margin:20px auto; max-width:90%;">
+                    <img src="data:image/png;base64,${screenshot}" style="width:100%; border:4px solid #444; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.5);"/>
+                </div>
+                <p>Bot listo: ${botReady ? "SÍ" : "NO"}</p>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        res.status(500).send("Error capturando pantalla: " + err.message);
+    }
+});
+
 app.get('/qr', async (req, res) => {
     if (!qrData) {
         return res.send(`<h2 style="text-align:center;padding-top:20vh;">✅ Autenticado</h2>`);
