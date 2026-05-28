@@ -20,14 +20,12 @@ const authDir = path.join(__dirname, '.wwebjs_auth');
 process.on('unhandledRejection', (reason, promise) => {
     const errorMsg = String(reason).toLowerCase();
     
-    // ⭐ NUEVO: Si el error es crítico y Chromium colapsa, MATA el proceso.
-    // Railway detectará la caída y reiniciará el contenedor automáticamente fresco.
     if (errorMsg.includes('target closed') || 
         errorMsg.includes('session closed') || 
         errorMsg.includes('execution context was destroyed')) {
         console.error('\n💀 [CRÍTICO] Chromium colapsó por falta de memoria o inactividad.');
         console.error('🔄 Forzando reinicio automático del contenedor en Railway...\n');
-        process.exit(1); // Esto dispara el auto-reinicio de Railway
+        process.exit(1); 
     } else {
         console.error('⚠️ Promesa rechazada (Ignorada):', reason);
     }
@@ -54,7 +52,7 @@ function limpiarCandados(dir) {
 
 limpiarCandados(authDir);
 
-console.log('\n🤖 INICIANDO BOT FINAL PARA RAILWAY\n');
+console.log('\n🤖 INICIANDO BOT OBRERO PARA RAILWAY\n');
 
 // ==========================================
 // CLIENTE CON TIMEOUT Y SIN CACHÉ
@@ -81,7 +79,6 @@ const client = new Client({
             '--disable-backgrounding-occluded-windows',
             '--disable-software-rasterizer',
             '--memory-pressure-off',
-            // ⭐ NUEVO: Límite estricto de RAM para el proceso de V8 (Chromium)
             '--js-flags="--max-old-space-size=250"', 
             '--renderer-process-limit=1'
         ],
@@ -95,7 +92,7 @@ setInterval(() => {
 }, 3600000); 
 
 // ==========================================
-// PROCESAR MENSAJE (CENTRAL)
+// PROCESAR MENSAJE (EL MENSAJERO)
 // ==========================================
 
 async function procesarMensaje(msg) {
@@ -110,36 +107,54 @@ async function procesarMensaje(msg) {
         mensajesProcesados.add(idUnico);
 
         console.log(`\n📨 Mensaje recibido de ${msg.from}`);
-        console.log(`   Texto: "${msg.body}"`);
 
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
-            console.log(`   ⏭️  (no es texto)`);
+            console.log(`   ⏭️  (Ignorado: no es texto)`);
             return;
         }
 
-        const limpio = msg.body.trim().toLowerCase();
+        const chat = await msg.getChat();
+        
+        console.log(`   🧠 Consultando al cerebro en FastAPI...`);
+        
+        // 🔗 CONEXIÓN CON EL BACKEND DE ODREKAO
+        const backendUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev/api/bot/webhook';
+        const apiKey = process.env.BOT_API_KEY || 'odrekao_super_secreto';
 
-        if (limpio === 'hola') {
-            console.log(`   ✅ COMANDO DETECTADO`);
-            
-            const chat = await msg.getChat();
-            const idChat = chat.id._serialized || chat.id;
-            
-            console.log(`   Chat: ${chat.name}`);
-            console.log(`   📤 Enviando respuesta...`);
-            
-            await msg.reply(
-                `🤖 *Info*\n` +
-                `Nombre: ${chat.name}\n` +
-                `ID: *${idChat}*`
-            );
-            
+        const response = await fetch(backendUrl, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey
+            },
+            body: JSON.stringify({
+                from_id: chat.id._serialized || chat.id,
+                body: msg.body,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                chat_name: chat.name || "Desconocido"
+            })
+        });
+
+        if (!response.ok) {
+            console.error(`   ❌ Error HTTP del backend: ${response.status}`);
+            return;
+        }
+
+        const data = await response.json();
+
+        // El bot obedece ciegamente lo que diga FastAPI
+        if (data.responder && data.texto) {
+            console.log(`   📤 Enviando respuesta dictada por el backend...`);
+            await msg.reply(data.texto);
             console.log(`   ✅ Respuesta enviada\n`);
+        } else {
+            console.log(`   🤫 El backend ordenó ignorar este mensaje.\n`);
         }
 
     } catch (error) {
         if (!error.message.includes('timeout')) {
-            console.error(`❌ Error al procesar: ${error.message}`);
+            console.error(`❌ Error de comunicación con FastAPI: ${error.message}`);
         }
     }
 }
@@ -151,7 +166,7 @@ client.on('qr', qr => {
     qrData = qr;
     console.clear();
     console.log('\n╔════════════════════════════════════════╗');
-    console.log('║    🔐 ESCANEA EL CÓDIGO QR 👇        ║');
+    console.log('║   🔐 ESCANEA EL CÓDIGO QR 👇        ║');
     console.log('╚════════════════════════════════════════╝\n');
     qrcodeTerminal.generate(qr, { small: true });
     const puerto = process.env.PORT || 3000;
@@ -176,24 +191,18 @@ client.on('message_create', async msg => {
 client.on('ready', async () => {
     botReady = true;
     console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   ✅ ¡BOT EN LÍNEA Y LISTO!            ║');
-    console.log('║   Esperando mensajes de forma nativa   ║');
+    console.log('║   ✅ ¡BOT OBRERO EN LÍNEA!           ║');
+    console.log('║   Esperando órdenes del backend      ║');
     console.log('╚════════════════════════════════════════╝\n');
 
-    // ⭐ NUEVO: Latido de corazón (Keep-Alive)
-    // Simula una acción invisible en el navegador cada 1 minuto
-    // para evitar que WhatsApp Web "congele" la pestaña por inactividad
     setInterval(async () => {
         try {
             if (client.pupPage) {
                 await client.pupPage.evaluate(() => {
-                    // Solo mueve el mouse virtualmente para que la web detecte actividad
                     window.dispatchEvent(new MouseEvent('mousemove'));
                 });
             }
-        } catch (error) {
-            // Si esto falla, la página murió, dejamos que el unhandledRejection se encargue
-        }
+        } catch (error) {}
     }, 60000); 
 });
 
@@ -204,8 +213,6 @@ client.on('auth_failure', (msg) => {
 client.on('disconnected', (reason) => {
     botReady = false;
     console.log(`\n⚠️  Desconectado: ${reason}`);
-    
-    // ⭐ NUEVO: Si WhatsApp nos desconecta, nos suicidamos para renacer.
     console.log('🔄 Reiniciando contenedor para re-vincular sesión...');
     process.exit(1);
 });
@@ -244,20 +251,22 @@ app.get('/status', (req, res) => {
     });
 });
 
+// 🔗 ENDPOINT ADAPTADO PARA EL ESCRITORIO PDA
 app.post('/notificar', async (req, res) => {
     if (!botReady) {
         return res.status(503).json({ error: 'Bot no está listo' });
     }
 
-    const { mensaje, grupoId } = req.body;
+    // Adaptado para recibir "to" y "mensaje" desde FastAPI
+    const { mensaje, to } = req.body;
     
-    if (!mensaje || !grupoId) {
-        return res.status(400).json({ error: 'Faltan campos' });
+    if (!mensaje || !to) {
+        return res.status(400).json({ error: 'Faltan campos (to, mensaje)' });
     }
 
     try {
-        await client.sendMessage(grupoId, mensaje);
-        res.json({ status: 'Enviado', target: grupoId });
+        await client.sendMessage(to, mensaje);
+        res.json({ status: 'Enviado', target: to });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
