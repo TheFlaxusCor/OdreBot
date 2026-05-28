@@ -55,15 +55,11 @@ limpiarCandados(authDir);
 console.log('\n🤖 INICIANDO BOT OBRERO PARA RAILWAY\n');
 
 // ==========================================
-// 🛠️ CLIENTE CON CAMUFLAJE DE USER-AGENT
+// 🛠️ CLIENTE OPTIMIZADO PARA ESTABILIDAD
 // ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
-    webVersion: '2.2412.54', 
-    webVersionCache: { 
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-    },
+    // Dejamos que la librería gestione la versión más reciente compatible automáticamente
     puppeteer: {
         headless: true,
         executablePath: '/usr/bin/chromium',
@@ -71,19 +67,13 @@ const client = new Client({
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
             '--disable-gpu',
-            '--disable-background-timer-throttling',
-            '--disable-renderer-backgrounding',
-            '--disable-backgrounding-occluded-windows',
+            '--no-zygote',
+            '--no-first-run',
             '--disable-software-rasterizer',
-            '--memory-pressure-off',
-            '--js-flags="--max-old-space-size=250"', 
-            '--renderer-process-limit=1',
-            // 🕶️ CAMUFLAJE: Evita que WhatsApp Web detecte que es un bot automatizado
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+            '--disable-gl-drawing-for-tests',
+            // 🕶️ User-Agent moderno y real para evitar bloqueos/peticiones de actualización
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000 
     }
@@ -170,12 +160,10 @@ client.on('qr', qr => {
     console.log('║    🔐 ESCANEA EL CÓDIGO QR 👇          ║');
     console.log('╚════════════════════════════════════════╝\n');
     qrcodeTerminal.generate(qr, { small: true });
-    const puerto = process.env.PORT || 3000;
-    console.log(`\n✨ O entra a tu URL de Railway en /qr\n`);
 });
 
 client.on('authenticated', () => {
-    console.log('✅ Autenticación exitosa');
+    console.log('✅ Autenticación exitosa (Sesión reconocida)');
     qrData = null;
 });
 
@@ -195,16 +183,6 @@ client.on('ready', async () => {
     console.log('║    ✅ ¡BOT OBRERO EN LÍNEA!            ║');
     console.log('║    Esperando órdenes del backend      ║');
     console.log('╚════════════════════════════════════════╝\n');
-
-    setInterval(async () => {
-        try {
-            if (client.pupPage) {
-                await client.pupPage.evaluate(() => {
-                    window.dispatchEvent(new MouseEvent('mousemove'));
-                });
-            }
-        } catch (error) {}
-    }, 60000); 
 });
 
 client.on('auth_failure', (msg) => {
@@ -221,24 +199,18 @@ client.on('disconnected', (reason) => {
 // ==========================================
 // ENDPOINTS
 // ==========================================
-
-// 📷 ENDPOINT DE DIAGNÓSTICO VISUAL VISUAL 
 app.get('/screenshot', async (req, res) => {
-    if (!client.pupPage) {
-        return res.status(400).send("<h3>Navegador no inicializado aún</h3>");
+    if (!client.pupPage || client.pupPage.isClosed()) {
+        return res.status(400).send("<h3>Navegador no inicializado o página colapsada</h3>");
     }
     try {
         const screenshot = await client.pupPage.screenshot({ encoding: 'base64' });
         res.send(`
             <!DOCTYPE html>
             <html>
-            <head><title>Bot Monitor</title></head>
-            <body style="background:#222; color:white; font-family:sans-serif; text-align:center; margin:20px;">
-                <h2>Ojos del Bot (Vista interna de Chromium)</h2>
-                <div style="margin:20px auto; max-width:90%;">
-                    <img src="data:image/png;base64,${screenshot}" style="width:100%; border:4px solid #444; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.5);"/>
-                </div>
-                <p>Bot listo: ${botReady ? "SÍ" : "NO"}</p>
+            <body style="background:#222; color:white; font-family:sans-serif; text-align:center;">
+                <h2>Vista interna de Chromium</h2>
+                <img src="data:image/png;base64,${screenshot}" style="width:80%; border:3px solid #444;"/>
             </body>
             </html>
         `);
@@ -251,53 +223,27 @@ app.get('/qr', async (req, res) => {
     if (!qrData) {
         return res.send(`<h2 style="text-align:center;padding-top:20vh;">✅ Autenticado</h2>`);
     }
-
     try {
         const qrImg = await qrcode.toDataURL(qrData);
-        res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-            <meta http-equiv="refresh" content="10">
-            <style>body{font-family:sans-serif;background:#e5ddd5;
-            display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}
-            .card{background:white;padding:40px;border-radius:15px;
-            box-shadow:0 10px 20px rgba(0,0,0,0.1);text-align:center;}
-            img{max-width:300px;margin:20px 0;}</style></head>
-            <body><div class="card"><h2>🤖 Bot WhatsApp</h2>
-            <img src="${qrImg}"><p>Escanea con WhatsApp</p></div>
-            </body></html>`);
+        res.send(`<!DOCTYPE html><html><body><div style="text-align:center;"><img src="${qrImg}"><p>Escanea</p></div></body></html>`);
     } catch (err) {
         res.status(500).send('Error');
     }
 });
 
 app.get('/status', (req, res) => {
-    res.json({
-        botReady,
-        autenticado: client.info ? true : false,
-        usuario: client.info?.wid?.user || 'N/A'
-    });
+    res.json({ botReady, autenticado: client.info ? true : false });
 });
 
 app.post('/notificar', async (req, res) => {
-    if (!botReady) {
-        return res.status(503).json({ error: 'Bot no está listo' });
-    }
-
+    if (!botReady) return res.status(503).json({ error: 'Bot no listo' });
     const { mensaje, to } = req.body;
-    
-    if (!mensaje || !to) {
-        return res.status(400).json({ error: 'Faltan campos (to, mensaje)' });
-    }
-
     try {
         await client.sendMessage(to, mensaje);
-        res.json({ status: 'Enviado', target: to });
+        res.json({ status: 'Enviado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
-
-app.get('/test', (req, res) => {
-    res.json({ ok: true, botReady });
 });
 
 // ==========================================
