@@ -55,13 +55,15 @@ limpiarCandados(authDir);
 console.log('\n🤖 INICIANDO BOT OBRERO PARA RAILWAY\n');
 
 // ==========================================
-// CLIENTE CON TIMEOUT Y SIN CACHÉ
+// 🛠️ CLIENTE CON VERSIÓN FIJA Y CONGELADA
 // ==========================================
-
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
+    // Fijamos versión para evitar que los cambios diarios de Meta rompan los eventos
+    webVersion: '2.2412.54', 
     webVersionCache: { 
-        type: 'none' 
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     },
     puppeteer: {
         headless: true,
@@ -94,7 +96,6 @@ setInterval(() => {
 // ==========================================
 // PROCESAR MENSAJE (EL MENSAJERO)
 // ==========================================
-
 async function procesarMensaje(msg) {
     try {
         if (msg.from === 'status@broadcast') return;
@@ -109,16 +110,17 @@ async function procesarMensaje(msg) {
         console.log(`\n📨 Mensaje recibido de ${msg.from}`);
 
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
-            console.log(`   ⏭️  (Ignorado: no es texto)`);
+            console.log(`    ⏭️  (Ignorado: no es texto)`);
             return;
         }
 
         const chat = await msg.getChat();
         
-        console.log(`   🧠 Consultando al cerebro en FastAPI...`);
+        console.log(`    🧠 Consultando al cerebro en FastAPI...`);
         
-        // 🔗 CONEXIÓN CON EL BACKEND DE ODREKAO
-        const backendUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev/api/bot/webhook';
+        // 🔗 CONEXIÓN ASEGURADA: Limpiamos barras y forzamos la ruta del endpoint correcto
+        const baseUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev';
+        const backendUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/webhook`;
         const apiKey = process.env.BOT_API_KEY || 'odrekao_super_secreto';
 
         const response = await fetch(backendUrl, {
@@ -137,7 +139,7 @@ async function procesarMensaje(msg) {
         });
 
         if (!response.ok) {
-            console.error(`   ❌ Error HTTP del backend: ${response.status}`);
+            console.error(`    ❌ Error HTTP del backend: ${response.status}`);
             return;
         }
 
@@ -145,11 +147,11 @@ async function procesarMensaje(msg) {
 
         // El bot obedece ciegamente lo que diga FastAPI
         if (data.responder && data.texto) {
-            console.log(`   📤 Enviando respuesta dictada por el backend...`);
+            console.log(`    📤 Enviando respuesta dictada por el backend...`);
             await msg.reply(data.texto);
-            console.log(`   ✅ Respuesta enviada\n`);
+            console.log(`    ✅ Respuesta enviada\n`);
         } else {
-            console.log(`   🤫 El backend ordenó ignorar este mensaje.\n`);
+            console.log(`    🤫 El backend ordenó ignorar este mensaje.\n`);
         }
 
     } catch (error) {
@@ -166,7 +168,7 @@ client.on('qr', qr => {
     qrData = qr;
     console.clear();
     console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   🔐 ESCANEA EL CÓDIGO QR 👇        ║');
+    console.log('║    🔐 ESCANEA EL CÓDIGO QR 👇          ║');
     console.log('╚════════════════════════════════════════╝\n');
     qrcodeTerminal.generate(qr, { small: true });
     const puerto = process.env.PORT || 3000;
@@ -191,8 +193,8 @@ client.on('message_create', async msg => {
 client.on('ready', async () => {
     botReady = true;
     console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   ✅ ¡BOT OBRERO EN LÍNEA!           ║');
-    console.log('║   Esperando órdenes del backend      ║');
+    console.log('║    ✅ ¡BOT OBRERO EN LÍNEA!            ║');
+    console.log('║    Esperando órdenes del backend      ║');
     console.log('╚════════════════════════════════════════╝\n');
 
     setInterval(async () => {
@@ -220,7 +222,6 @@ client.on('disconnected', (reason) => {
 // ==========================================
 // ENDPOINTS
 // ==========================================
-
 app.get('/qr', async (req, res) => {
     if (!qrData) {
         return res.send(`<h2 style="text-align:center;padding-top:20vh;">✅ Autenticado</h2>`);
@@ -251,13 +252,11 @@ app.get('/status', (req, res) => {
     });
 });
 
-// 🔗 ENDPOINT ADAPTADO PARA EL ESCRITORIO PDA
 app.post('/notificar', async (req, res) => {
     if (!botReady) {
         return res.status(503).json({ error: 'Bot no está listo' });
     }
 
-    // Adaptado para recibir "to" y "mensaje" desde FastAPI
     const { mensaje, to } = req.body;
     
     if (!mensaje || !to) {
@@ -279,7 +278,6 @@ app.get('/test', (req, res) => {
 // ==========================================
 // INICIAR
 // ==========================================
-
 console.log('📱 Inicializando cliente...\n');
 client.initialize();
 
