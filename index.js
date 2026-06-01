@@ -13,6 +13,7 @@ let botReady = false;
 const mensajesProcesados = new Set();
 
 const authDir = path.join(__dirname, '.wwebjs_auth');
+const cacheDir = path.join(__dirname, '.wwebjs_cache'); // 🚨 Directorio del devorador de RAM
 
 // ==========================================
 // 🛡️ ESCUDO INTELIGENTE (FAIL-FAST)
@@ -23,25 +24,35 @@ process.on('unhandledRejection', (reason, promise) => {
     if (errorMsg.includes('target closed') || 
         errorMsg.includes('session closed') || 
         errorMsg.includes('execution context was destroyed')) {
-        console.error('\n💀 [CRÍTICO] Chromium colapsó por falta de memoria o inactividad.');
-        console.error('🔄 Forzando reinicio automático del contenedor en Railway...\n');
+        console.error('\n💀 [CRÍTICO] Chromium colapsó. El OOM Killer o la inactividad lo mataron.');
+        console.error('🔄 PM2 se encargará del reinicio automático...\n');
         process.exit(1); 
     } else {
         console.error('⚠️ Promesa rechazada (Ignorada):', reason);
     }
 });
 
-// Limpieza rápida de candados corruptos
-function limpiarCandados(dir) {
-    if (!fs.existsSync(dir)) return;
+// ==========================================
+// 🧹 LIMPIEZA EXTREMA (ANTES DE INICIAR)
+// ==========================================
+function aniquilarCache() {
+    // 1. Borrar caché multimedia
+    if (fs.existsSync(cacheDir)) {
+        try {
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+            console.log('🗑️  Caché de Chromium purgada con éxito.');
+        } catch (err) {
+            console.error('⚠️  No se pudo purgar la caché por completo.');
+        }
+    }
+
+    // 2. Limpiar candados corruptos
+    if (!fs.existsSync(authDir)) return;
     try {
-        const archivos = fs.readdirSync(dir);
+        const archivos = fs.readdirSync(authDir);
         archivos.forEach(archivo => {
-            const ruta = path.join(dir, archivo);
-            const stat = fs.lstatSync(ruta);
-            if (stat.isDirectory()) {
-                limpiarCandados(ruta);
-            } else {
+            const ruta = path.join(authDir, archivo);
+            if (!fs.lstatSync(ruta).isDirectory()) {
                 if (archivo.includes('Lock') || archivo.includes('Cookie')) {
                     fs.unlinkSync(ruta);
                 }
@@ -50,16 +61,15 @@ function limpiarCandados(dir) {
     } catch (err) {}
 }
 
-limpiarCandados(authDir);
+aniquilarCache();
 
-console.log('\n🤖 INICIANDO BOT OBRERO PARA RAILWAY\n');
+console.log('\n🤖 INICIANDO BOT OBRERO EN MODO SUPERVIVENCIA\n');
 
 // ==========================================
-// 🛠️ CLIENTE OPTIMIZADO PARA ESTABILIDAD
+// 🛠️ CLIENTE OPTIMIZADO PARA BAJA RAM
 // ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
-    // Dejamos que la librería gestione la versión más reciente compatible automáticamente
     puppeteer: {
         headless: true,
         executablePath: '/usr/bin/chromium',
@@ -72,16 +82,27 @@ const client = new Client({
             '--no-first-run',
             '--disable-software-rasterizer',
             '--disable-gl-drawing-for-tests',
-            // 🕶️ User-Agent moderno y real para evitar bloqueos/peticiones de actualización
+            // 🚨 Banderas extremas para ahorrar RAM:
+            '--disk-cache-size=52428800', // Limita la caché a 50MB máximo
+            '--disable-extensions', // Sin extensiones
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-client-side-phishing-detection',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--safebrowsing-disable-auto-update',
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000 
     }
 });
 
+// Limpieza en caliente del Set de mensajes para que Node no consuma RAM poco a poco
 setInterval(() => {
     mensajesProcesados.clear();
-    console.log('🧹 Limpieza de memoria (Set de mensajes) realizada.');
+    console.log('🧹 Limpieza de Set de mensajes realizada en memoria.');
 }, 3600000); 
 
 // ==========================================
@@ -98,16 +119,11 @@ async function procesarMensaje(msg) {
         }
         mensajesProcesados.add(idUnico);
 
-        console.log(`\n📨 Mensaje recibido de ${msg.from}`);
+        console.log(`\n📨 Mensaje de ${msg.from}`);
 
-        if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') {
-            console.log(`    ⏭️  (Ignorado: no es texto)`);
-            return;
-        }
+        if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') return;
 
         const chat = await msg.getChat();
-        
-        console.log(`    🧠 Consultando al cerebro en FastAPI...`);
         
         const baseUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev';
         const backendUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/webhook`;
@@ -128,24 +144,18 @@ async function procesarMensaje(msg) {
             })
         });
 
-        if (!response.ok) {
-            console.error(`    ❌ Error HTTP del backend: ${response.status}`);
-            return;
-        }
+        if (!response.ok) return;
 
         const data = await response.json();
 
         if (data.responder && data.texto) {
-            console.log(`    📤 Enviando respuesta dictada por el backend...`);
             await msg.reply(data.texto);
-            console.log(`    ✅ Respuesta enviada\n`);
-        } else {
-            console.log(`    🤫 El backend ordenó ignorar este mensaje.\n`);
+            console.log(`    ✅ Respuesta de FastAPI enviada.`);
         }
 
     } catch (error) {
         if (!error.message.includes('timeout')) {
-            console.error(`❌ Error de comunicación con FastAPI: ${error.message}`);
+            console.error(`❌ Error HTTP: ${error.message}`);
         }
     }
 }
@@ -156,103 +166,56 @@ async function procesarMensaje(msg) {
 client.on('qr', qr => {
     qrData = qr;
     console.clear();
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║    🔐 ESCANEA EL CÓDIGO QR 👇          ║');
-    console.log('╚════════════════════════════════════════╝\n');
+    console.log('\n🔐 ESCANEA EL CÓDIGO QR 👇\n');
     qrcodeTerminal.generate(qr, { small: true });
 });
 
 client.on('authenticated', () => {
-    console.log('✅ Autenticación exitosa (Sesión reconocida)');
+    console.log('✅ Autenticación exitosa');
     qrData = null;
 });
 
-client.on('message', async msg => {
-    await procesarMensaje(msg);
-});
+client.on('message', async msg => { await procesarMensaje(msg); });
+client.on('message_create', async msg => { if(msg.fromMe) await procesarMensaje(msg); });
 
-client.on('message_create', async msg => {
-    if(msg.fromMe) {
-        await procesarMensaje(msg);
-    }
-});
-
-client.on('ready', async () => {
+client.on('ready', () => {
     botReady = true;
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║    ✅ ¡BOT OBRERO EN LÍNEA!            ║');
-    console.log('║    Esperando órdenes del backend      ║');
-    console.log('╚════════════════════════════════════════╝\n');
-});
-
-client.on('auth_failure', (msg) => {
-    console.error(`❌ Fallo de autenticación: ${msg}`);
+    console.log('\n✅ ¡BOT OBRERO EN LÍNEA Y OPTIMIZADO!\n');
 });
 
 client.on('disconnected', (reason) => {
     botReady = false;
-    console.log(`\n⚠️  Desconectado: ${reason}`);
-    console.log('🔄 Reiniciando contenedor para re-vincular sesión...');
-    process.exit(1);
+    console.log(`\n⚠️  Desconectado: ${reason}`);
+    process.exit(1); // Dejamos que PM2 lo reinicie
 });
 
 // ==========================================
 // ENDPOINTS
 // ==========================================
-app.get('/screenshot', async (req, res) => {
-    if (!client.pupPage || client.pupPage.isClosed()) {
-        return res.status(400).send("<h3>Navegador no inicializado o página colapsada</h3>");
-    }
-    try {
-        const screenshot = await client.pupPage.screenshot({ encoding: 'base64' });
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <body style="background:#222; color:white; font-family:sans-serif; text-align:center;">
-                <h2>Vista interna de Chromium</h2>
-                <img src="data:image/png;base64,${screenshot}" style="width:80%; border:3px solid #444;"/>
-            </body>
-            </html>
-        `);
-    } catch (err) {
-        res.status(500).send("Error capturando pantalla: " + err.message);
-    }
-});
-
 app.get('/qr', async (req, res) => {
-    if (!qrData) {
-        return res.send(`<h2 style="text-align:center;padding-top:20vh;">✅ Autenticado</h2>`);
-    }
+    if (!qrData) return res.send(`<h2>✅ Autenticado</h2>`);
     try {
         const qrImg = await qrcode.toDataURL(qrData);
-        res.send(`<!DOCTYPE html><html><body><div style="text-align:center;"><img src="${qrImg}"><p>Escanea</p></div></body></html>`);
+        res.send(`<div style="text-align:center;"><img src="${qrImg}"><p>Escanea</p></div>`);
     } catch (err) {
         res.status(500).send('Error');
     }
 });
 
-app.get('/status', (req, res) => {
-    res.json({ botReady, autenticado: client.info ? true : false });
-});
+app.get('/status', (req, res) => res.json({ botReady, autenticado: client.info ? true : false }));
 
 app.post('/notificar', async (req, res) => {
     if (!botReady) return res.status(503).json({ error: 'Bot no listo' });
-    const { mensaje, to } = req.body;
     try {
-        await client.sendMessage(to, mensaje);
+        await client.sendMessage(req.body.to, req.body.mensaje);
         res.json({ status: 'Enviado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// ==========================================
-// INICIAR
-// ==========================================
 console.log('📱 Inicializando cliente...\n');
 client.initialize();
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor escuchando en puerto ${PORT}\n`);
-});
+app.listen(PORT, () => console.log(`🚀 Escuchando en puerto ${PORT}\n`));
