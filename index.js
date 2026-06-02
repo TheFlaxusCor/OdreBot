@@ -10,7 +10,7 @@ app.use(express.json());
 
 let qrData = null;
 let botReady = false;
-let ultimaActividad = Date.now(); // 🆕 Watchdog tracker
+let ultimaActividad = Date.now();
 const mensajesProcesados = new Set();
 
 const authDir = path.join(__dirname, '.wwebjs_auth');
@@ -25,8 +25,8 @@ process.on('unhandledRejection', (reason, promise) => {
         errorMsg.includes('target closed') ||
         errorMsg.includes('session closed') ||
         errorMsg.includes('execution context was destroyed') ||
-        errorMsg.includes('browser has disconnected') ||  // 🆕
-        errorMsg.includes('protocol error')               // 🆕
+        errorMsg.includes('browser has disconnected') ||
+        errorMsg.includes('protocol error')
     ) {
         console.error('\n💀 [CRÍTICO] Chromium colapsó. Forzando reinicio vía PM2...\n');
         process.exit(1);
@@ -35,7 +35,7 @@ process.on('unhandledRejection', (reason, promise) => {
     }
 });
 
-process.on('uncaughtException', (err) => {  // 🆕 Captura errores síncronos también
+process.on('uncaughtException', (err) => {
     console.error('💥 Error no capturado:', err.message);
     if (
         err.message.includes('target closed') ||
@@ -81,7 +81,8 @@ const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
     puppeteer: {
         headless: true,
-        executablePath: '/usr/bin/chromium',
+        // ✅ PATH CORREGIDO: Chromium snap real
+        executablePath: '/snap/chromium/current/usr/lib/chromium-browser/chrome',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -89,7 +90,6 @@ const client = new Client({
             '--disable-gpu',
             '--no-zygote',
             '--no-first-run',
-            '--single-process',                          // 🆕 Un solo proceso = menos RAM
             '--disable-software-rasterizer',
             '--disable-gl-drawing-for-tests',
             '--disk-cache-size=52428800',
@@ -102,8 +102,8 @@ const client = new Client({
             '--metrics-recording-only',
             '--mute-audio',
             '--safebrowsing-disable-auto-update',
-            '--disable-images',                          // 🆕 Sin imágenes = menos RAM
-            '--blink-settings=imagesEnabled=false',      // 🆕 Doble seguro
+            '--disable-images',
+            '--blink-settings=imagesEnabled=false',
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000
@@ -111,22 +111,18 @@ const client = new Client({
 });
 
 // ==========================================
-// 🆕 WATCHDOG: Detecta si el bot murió silenciosamente
+// 🆕 WATCHDOG: Detecta bot zombie
 // ==========================================
 const WATCHDOG_INTERVALO = 5 * 60 * 1000;   // Revisar cada 5 minutos
-const WATCHDOG_TIMEOUT   = 30 * 60 * 1000;  // Si lleva 30 min sin actividad → reiniciar
+const WATCHDOG_TIMEOUT   = 30 * 60 * 1000;  // 30 min sin actividad → reiniciar
 
 setInterval(() => {
-    const ahorita = Date.now();
-    const inactividad = ahorita - ultimaActividad;
-
-    // Limpiar Set de mensajes procesados
+    const inactividad = Date.now() - ultimaActividad;
     mensajesProcesados.clear();
     console.log(`🧹 Set limpiado. Inactividad: ${Math.round(inactividad / 60000)} min`);
 
-    // Si el bot debería estar listo pero lleva demasiado tiempo sin actividad
     if (botReady && inactividad > WATCHDOG_TIMEOUT) {
-        console.error('💀 [WATCHDOG] Bot zombie detectado. Sin actividad por 30 min. Reiniciando...');
+        console.error('💀 [WATCHDOG] Bot zombie detectado. Reiniciando...');
         process.exit(1);
     }
 }, WATCHDOG_INTERVALO);
@@ -142,7 +138,7 @@ async function procesarMensaje(msg) {
         if (mensajesProcesados.has(idUnico)) return;
         mensajesProcesados.add(idUnico);
 
-        ultimaActividad = Date.now(); // 🆕 Actualizar watchdog
+        ultimaActividad = Date.now();
         console.log(`\n📨 Mensaje de ${msg.from}`);
 
         if (msg.type !== MessageTypes.TEXT && msg.type !== 'chat') return;
@@ -153,8 +149,8 @@ async function procesarMensaje(msg) {
         const backendUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/webhook`;
         const apiKey = process.env.BOT_API_KEY || 'odrekao_super_secreto';
 
-        const controller = new AbortController();                        // 🆕 Timeout seguro
-        const timeoutId = setTimeout(() => controller.abort(), 15000);   // 🆕 15s máximo
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         const response = await fetch(backendUrl, {
             method: 'POST',
@@ -169,10 +165,10 @@ async function procesarMensaje(msg) {
                 timestamp: msg.timestamp,
                 chat_name: chat.name || "Desconocido"
             }),
-            signal: controller.signal  // 🆕
+            signal: controller.signal
         });
 
-        clearTimeout(timeoutId); // 🆕
+        clearTimeout(timeoutId);
 
         if (!response.ok) return;
 
@@ -240,14 +236,14 @@ app.get('/qr', async (req, res) => {
 app.get('/status', (req, res) => res.json({
     botReady,
     autenticado: client.info ? true : false,
-    inactividadMinutos: Math.round((Date.now() - ultimaActividad) / 60000)  // 🆕
+    inactividadMinutos: Math.round((Date.now() - ultimaActividad) / 60000)
 }));
 
 app.post('/notificar', async (req, res) => {
     if (!botReady) return res.status(503).json({ error: 'Bot no listo' });
     try {
         await client.sendMessage(req.body.to, req.body.mensaje);
-        ultimaActividad = Date.now(); // 🆕
+        ultimaActividad = Date.now();
         res.json({ status: 'Enviado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
