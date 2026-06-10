@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
 
 # 3. VARIABLES DE ENTORNO CRÍTICAS
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
 
 # 4. DIRECTORIO DE TRABAJO
 WORKDIR /app
