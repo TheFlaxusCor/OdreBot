@@ -81,9 +81,8 @@ const promesaConTimeout = (promesa, tiempoMs) => {
     });
     return Promise.race([promesa, timeout]).finally(() => clearTimeout(timeoutId));
 };
-
 // ==========================================
-// 🛠️ CLIENTE OPTIMIZADO
+// 🛠️ CLIENTE OPTIMIZADO (PERMITIENDO IMÁGENES)
 // ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
@@ -91,15 +90,25 @@ const client = new Client({
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
         args: [
-            '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-            '--disable-gpu', '--no-zygote', '--no-first-run',
-            '--disable-software-rasterizer', '--disable-gl-drawing-for-tests',
-            '--disk-cache-size=52428800', '--disable-extensions',
-            '--disable-background-networking', '--disable-background-timer-throttling',
-            '--disable-client-side-phishing-detection', '--disable-default-apps',
-            '--disable-sync', '--metrics-recording-only', '--mute-audio',
-            '--safebrowsing-disable-auto-update', '--disable-images',
-            '--blink-settings=imagesEnabled=false',
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-gpu', 
+            '--no-zygote', 
+            '--no-first-run',
+            '--disable-software-rasterizer', 
+            '--disable-gl-drawing-for-tests',
+            '--disk-cache-size=52428800', 
+            '--disable-extensions',
+            '--disable-background-networking', 
+            '--disable-background-timer-throttling',
+            '--disable-client-side-phishing-detection', 
+            '--disable-default-apps',
+            '--disable-sync', 
+            '--metrics-recording-only', 
+            '--mute-audio',
+            '--safebrowsing-disable-auto-update', 
+            // 🚨 ELIMINAMOS --disable-images y blink-settings
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000
