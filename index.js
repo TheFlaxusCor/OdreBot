@@ -55,9 +55,7 @@ function aniquilarCache() {
         try {
             fs.rmSync(cacheDir, { recursive: true, force: true });
             console.log('🗑️  Caché de Chromium purgada.');
-        } catch (err) {
-            console.error('⚠️  No se pudo purgar la caché.');
-        }
+        } catch (err) {}
     }
     if (!fs.existsSync(authDir)) return;
     try {
@@ -77,8 +75,16 @@ aniquilarCache();
 console.log('\n🤖 INICIANDO BOT EN MODO SUPERVIVENCIA\n');
 
 // ==========================================
-// 🛠️ CLIENTE OPTIMIZADO PARA BAJA RAM
+// 🛠️ FUNCIÓN AUXILIAR: TIMEOUT PARA PROMESAS
 // ==========================================
+const promesaConTimeout = (promesa, tiempoMs) => {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('TIMEOUT_EXCEDIDO')), tiempoMs);
+    });
+    return Promise.race([promesa, timeout]).finally(() => clearTimeout(timeoutId));
+};
+
 // ==========================================
 // 🛠️ CLIENTE OPTIMIZADO PARA BAJA RAM
 // ==========================================
@@ -86,7 +92,6 @@ const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
     puppeteer: {
         headless: true,
-        // 👇 CAMBIA ESTA LÍNEA PARA QUE SEA COMPATIBLE CON DOCKER Y PM2 AL MISMO TIEMPO
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
         args: [
             '--no-sandbox',
@@ -118,8 +123,8 @@ const client = new Client({
 // ==========================================
 // 🆕 WATCHDOG: Detecta bot zombie
 // ==========================================
-const WATCHDOG_INTERVALO = 5 * 60 * 1000;   // Revisar cada 5 minutos
-const WATCHDOG_TIMEOUT   = 30 * 60 * 1000;  // 30 min sin actividad → reiniciar
+const WATCHDOG_INTERVALO = 5 * 60 * 1000; 
+const WATCHDOG_TIMEOUT   = 30 * 60 * 1000; 
 
 setInterval(() => {
     const inactividad = Date.now() - ultimaActividad;
@@ -132,23 +137,29 @@ setInterval(() => {
     }
 }, WATCHDOG_INTERVALO);
 
-//// ==========================================
-// PROCESAR MENSAJE (VERSIÓN HERMES 2.0 OPTIMIZADA)
+// ==========================================
+// PROCESAR MENSAJE (VERSIÓN ALTO RENDIMIENTO)
 // ==========================================
 async function procesarMensaje(msg) {
     try {
         if (msg.from === 'status@broadcast') return;
 
-        // 🛡️ REGLA DE ORO EVOLUCIONADA: Obtener el ID del canal sin importar el emisor
+        // 🚀 FIX 1: IGNORAR HISTORIAL ANTIGUO
+        const antiguedadSegundos = Math.floor(Date.now() / 1000) - msg.timestamp;
+        if (antiguedadSegundos > 60) return;
+
         const chatId = msg.fromMe ? msg.to : msg.from;
         const ignoreKey = `${chatId}_${msg.body || ''}`;
         
-        // Control absoluto sobre los ecos del bot para evitar bucles e interferencias
+        // 🚀 FIX 2: CONTROL DE ECOS VS HUMANOS
         if (msg.fromMe) {
             if (botMessagesIgnoreList.has(ignoreKey)) {
                 botMessagesIgnoreList.delete(ignoreKey);
+                console.log(` 🔇 [BOT] Eco de respuesta ignorado.`);
+                return; 
+            } else {
+                console.log(` 👤 [HUMANO] Mensaje enviado manualmente. Procesando hacia FastAPI...`);
             }
-            return; 
         }
 
         const idUnico = msg.id._serialized;
@@ -156,12 +167,20 @@ async function procesarMensaje(msg) {
         mensajesProcesados.add(idUnico);
 
         ultimaActividad = Date.now();
-        console.log(`\n📨 Mensaje detectado en canal ${chatId} [Tipo: ${msg.type}] (fromMe: ${msg.fromMe})`);
+        console.log(`\n📨 Mensaje NUEVO detectado en ${chatId} [Tipo: ${msg.type}]`);
 
         const tiposPermitidos = [MessageTypes.TEXT, 'chat', MessageTypes.DOCUMENT];
         if (!tiposPermitidos.includes(msg.type)) return;
 
-        const chat = await msg.getChat();
+        // 🚀 FIX 3: EXTRACCIÓN RÁPIDA DE CONTACTO
+        let chatName = "Desconocido";
+        try {
+            const contact = await msg.getContact();
+            chatName = contact.name || contact.pushname || contact.number || "Desconocido";
+        } catch (e) {
+            console.log(" ⚠️ Nombre de contacto no disponible.");
+        }
+
         const baseUrl = process.env.BACKEND_URL || 'https://backend-odrekao.fastapicloud.dev';
         const apiKey = process.env.BOT_API_KEY || 'odrekao_super_secreto';
         
@@ -171,7 +190,6 @@ async function procesarMensaje(msg) {
             headers: { 'x-api-key': apiKey }
         };
 
-        // 📦 MANEJO DE ARCHIVOS ADJUNTOS
         let isDocument = msg.hasMedia && msg.type === MessageTypes.DOCUMENT;
         
         if (isDocument) {
@@ -182,10 +200,10 @@ async function procesarMensaje(msg) {
             }
 
             descargasActivas++;
-            console.log(`📥 Descargando adjunto... (Descargas activas: ${descargasActivas})`);
+            console.log(`📥 Descargando adjunto...`);
 
             try {
-                const media = await msg.downloadMedia();
+                const media = await promesaConTimeout(msg.downloadMedia(), 45000);
 
                 if (!media || media.mimetype !== 'application/pdf') {
                     botMessagesIgnoreList.add(`${chatId}_⚠️ Por razones de compatibilidad, el sistema médico solo acepta archivos en formato PDF.`);
@@ -196,7 +214,7 @@ async function procesarMensaje(msg) {
 
                 const formData = new FormData();
                 formData.append('from_id', chatId); 
-                formData.append('chat_name', chat.name || "Desconocido");
+                formData.append('chat_name', chatName);
                 formData.append('body', msg.body || ''); 
                 formData.append('timestamp', msg.timestamp);
 
@@ -208,10 +226,10 @@ async function procesarMensaje(msg) {
                 targetUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/upload/pdf-whatsapp`; 
 
             } catch (error) {
-                console.error("❌ Error procesando el PDF en memoria:", error);
+                console.error("❌ Error procesando el PDF:", error.message);
                 botMessagesIgnoreList.add(`${chatId}_❌ Ocurrió un error al procesar tu archivo. Inténtalo de nuevo.`);
                 await msg.reply("❌ Ocurrió un error al procesar tu archivo. Inténtalo de nuevo.");
-                descargasActivas--;
+                descargasActivas--; 
                 return;
             }
             
@@ -219,24 +237,21 @@ async function procesarMensaje(msg) {
             console.log(`✅ Archivo preparado. Enviando a FastAPI...`);
 
         } else {
-            // 📝 MANEJO DE TEXTO NORMAL
             fetchOptions.headers['Content-Type'] = 'application/json';
             fetchOptions.body = JSON.stringify({
                 from_id: chatId,
                 body: msg.body,
                 type: msg.type,
                 timestamp: msg.timestamp,
-                chat_name: chat.name || "Desconocido"
+                chat_name: chatName
             });
         }
 
-        // ⏱️ TIMEOUT INTELIGENTE
         const controller = new AbortController();
         const timeoutDuration = isDocument ? 45000 : 15000; 
         const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
         fetchOptions.signal = controller.signal;
 
-        // 🚀 DISPARO AL BACKEND
         const response = await fetch(targetUrl, fetchOptions);
         clearTimeout(timeoutId);
 
@@ -245,51 +260,50 @@ async function procesarMensaje(msg) {
             return;
         }
 
-       const data = await response.json();
+        const data = await response.json();
 
-        // 🖼️ NUEVO: Entrega de Imagen con Texto (Panel de Bienvenida)
+        // 🚀 FIX 4: ENVÍO DIRECTO (NUEVA LÓGICA VÍA NODE PARA AHORRAR RAM)
         if (data.enviar_imagen && data.imagen_url) {
             try {
-                console.log(`🖼️ Descargando imagen estática: ${data.imagen_url}`);
-                const mediaImg = await MessageMedia.fromUrl(data.imagen_url, { unsafeMimeTypes: true });
+                console.log(`🖼️ Descargando imagen estática vía Node: ${data.imagen_url}`);
+                const resImg = await fetch(data.imagen_url);
+                const buffer = await resImg.arrayBuffer();
+                const base64Data = Buffer.from(buffer).toString('base64');
+                const mediaImg = new MessageMedia('image/png', base64Data, 'logo.png');
                 
-                // Registramos el texto en el escudo antiecos para evitar respuestas infinitas
                 botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
-                
-                // Enviamos la imagen y usamos el texto formateado como su "pie de foto" (caption)
-                await chat.sendMessage(mediaImg, { caption: data.texto });
-                console.log(`    ✅ Panel de bienvenida enviado con imagen y fuente especial.`);
+                await client.sendMessage(chatId, mediaImg, { caption: data.texto });
+                console.log(`    ✅ Panel de bienvenida enviado.`);
             } catch (imgError) {
-                console.error(`❌ Error obteniendo la imagen de /static/logo.png:`, imgError.message);
-                // Respaldo de seguridad: Si el servidor web falla en entregar la imagen, mandamos solo el texto
+                console.error(`❌ Error obteniendo imagen:`, imgError.message);
                 botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
                 await msg.reply(data.texto);
             }
         } 
-        // 💬 Respuesta de texto normal
         else if (data.responder && data.texto) {
             botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
             await msg.reply(data.texto);
-            console.log(`    ✅ Respuesta enviada al usuario.`);
+            console.log(`    ✅ Respuesta enviada.`);
         }
 
-        // 📄 Entrega de documentos remotos desde Google Drive
         if (data.enviar_documento && data.documento_url) {
             try {
-                console.log(`📥 Descargando documento solicitado desde Drive para transmisión directa...`);
-                const mediaDoc = await MessageMedia.fromUrl(data.documento_url, { unsafeMimeTypes: true });
+                console.log(`📥 Descargando documento remoto...`);
+                const mediaDoc = await promesaConTimeout(MessageMedia.fromUrl(data.documento_url, { unsafeMimeTypes: true }), 60000);
                 if (data.documento_nombre) {
                     mediaDoc.filename = data.documento_nombre;
                 }
-                await chat.sendMessage(mediaDoc);
-                console.log(`    ✅ Documento PDF transmitido exitosamente.`);
+                await client.sendMessage(chatId, mediaDoc);
+                console.log(`    ✅ Documento transmitido exitosamente.`);
             } catch (docError) {
-                console.error(`❌ Error transmitiendo el documento de Drive:`, docError.message);
+                console.error(`❌ Error transmitiendo documento:`, docError.message);
             }
         }
 
-        } catch (error) {
-        console.error("❌ Error general procesando el mensaje:", error);
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error("❌ Error general procesando el mensaje:", error);
+        }
     }
 } 
 
@@ -310,13 +324,12 @@ client.on('authenticated', () => {
     qrData = null;
 });
 
-// El bot ahora solo escucha mensajes entrantes directos del usuario externo
-client.on('message', async msg => { await procesarMensaje(msg); });
+client.on('message_create', async msg => { await procesarMensaje(msg); });
 
 client.on('ready', () => {
     botReady = true;
     ultimaActividad = Date.now();
-    console.log('\n✅ ¡BOT EN LÍNEA!\n');
+    console.log('\n✅ ¡BOT EN LÍNEA Y OPTIMIZADO!\n');
 });
 
 client.on('disconnected', (reason) => {
