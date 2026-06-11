@@ -262,20 +262,38 @@ async function procesarMensaje(msg) {
 
         const data = await response.json();
 
-        // 🚀 FIX 4: ENVÍO DIRECTO (NUEVA LÓGICA VÍA NODE PARA AHORRAR RAM)
-        if (data.enviar_imagen && data.imagen_url) {
+        // 🚀 FIX 4: ENVÍO DIRECTO (IMAGEN LOCAL DESDE EL DISCO DURO)
+        if (data.enviar_imagen) {
             try {
-                console.log(`🖼️ Descargando imagen estática vía Node: ${data.imagen_url}`);
-                const resImg = await fetch(data.imagen_url);
-                const buffer = await resImg.arrayBuffer();
-                const base64Data = Buffer.from(buffer).toString('base64');
-                const mediaImg = new MessageMedia('image/png', base64Data, 'logo.png');
-                
-                botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
-                await client.sendMessage(chatId, mediaImg, { caption: data.texto });
-                console.log(`    ✅ Panel de bienvenida enviado.`);
+                // Ruta absoluta buscando "logo.png" junto a index.js
+                const rutaImagenLocal = path.join(__dirname, 'logo.png');
+
+                if (fs.existsSync(rutaImagenLocal)) {
+                    console.log(`🖼️ Cargando imagen al instante desde disco duro local (logo.png)...`);
+                    const mediaImg = MessageMedia.fromFilePath(rutaImagenLocal);
+                    
+                    botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
+                    await client.sendMessage(chatId, mediaImg, { caption: data.texto });
+                    console.log(`    ✅ Panel de bienvenida enviado (Local).`);
+                } 
+                else if (data.imagen_url) {
+                    // PLAN B: Si la imagen local no existe, intenta descargarla desde el backend
+                    console.log(`⚠️ logo.png no encontrado localmente. Descargando vía Node: ${data.imagen_url}`);
+                    const resImg = await fetch(data.imagen_url);
+                    const buffer = await resImg.arrayBuffer();
+                    const base64Data = Buffer.from(buffer).toString('base64');
+                    const mediaImg = new MessageMedia('image/png', base64Data, 'logo.png');
+                    
+                    botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
+                    await client.sendMessage(chatId, mediaImg, { caption: data.texto });
+                    console.log(`    ✅ Panel de bienvenida enviado (Descargado).`);
+                } else {
+                    // Si no hay imagen local ni URL enviada por el backend, responde con texto plano
+                    botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
+                    await msg.reply(data.texto);
+                }
             } catch (imgError) {
-                console.error(`❌ Error obteniendo imagen:`, imgError.message);
+                console.error(`❌ Error procesando imagen:`, imgError.message);
                 botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
                 await msg.reply(data.texto);
             }
