@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageTypes } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageTypes, MessageMedia } = require('whatsapp-web.js');
 const qrcodeTerminal = require('qrcode-terminal');
 const qrcode = require('qrcode');
 const express = require('express');
@@ -14,8 +14,7 @@ let ultimaActividad = Date.now();
 const mensajesProcesados = new Set();
 let descargasActivas = 0; 
 const MAX_DESCARGAS = 2;
-
-
+const botMessagesIgnoreList = new Set();
 const authDir = path.join(__dirname, '.wwebjs_auth');
 const cacheDir = path.join(__dirname, '.wwebjs_cache');
 
@@ -80,12 +79,15 @@ console.log('\n🤖 INICIANDO BOT EN MODO SUPERVIVENCIA\n');
 // ==========================================
 // 🛠️ CLIENTE OPTIMIZADO PARA BAJA RAM
 // ==========================================
+// ==========================================
+// 🛠️ CLIENTE OPTIMIZADO PARA BAJA RAM
+// ==========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authDir }),
     puppeteer: {
         headless: true,
-        // ✅ PATH CORREGIDO: Chromium snap real
-        executablePath: '/snap/chromium/current/usr/lib/chromium-browser/chrome',
+        // 👇 CAMBIA ESTA LÍNEA PARA QUE SEA COMPATIBLE CON DOCKER Y PM2 AL MISMO TIEMPO
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -130,21 +132,32 @@ setInterval(() => {
     }
 }, WATCHDOG_INTERVALO);
 
-// ==========================================
-// PROCESAR MENSAJE (VERSIÓN HERMES 2.0)
+//// ==========================================
+// PROCESAR MENSAJE (VERSIÓN HERMES 2.0 OPTIMIZADA)
 // ==========================================
 async function procesarMensaje(msg) {
     try {
         if (msg.from === 'status@broadcast') return;
+
+        // 🛡️ REGLA DE ORO EVOLUCIONADA: Obtener el ID del canal sin importar el emisor
+        const chatId = msg.fromMe ? msg.to : msg.from;
+        const ignoreKey = `${chatId}_${msg.body || ''}`;
+        
+        // Control absoluto sobre los ecos del bot para evitar bucles e interferencias
+        if (msg.fromMe) {
+            if (botMessagesIgnoreList.has(ignoreKey)) {
+                botMessagesIgnoreList.delete(ignoreKey);
+            }
+            return; 
+        }
 
         const idUnico = msg.id._serialized;
         if (mensajesProcesados.has(idUnico)) return;
         mensajesProcesados.add(idUnico);
 
         ultimaActividad = Date.now();
-        console.log(`\n📨 Mensaje de ${msg.from} [Tipo: ${msg.type}]`);
+        console.log(`\n📨 Mensaje detectado en canal ${chatId} [Tipo: ${msg.type}] (fromMe: ${msg.fromMe})`);
 
-        // 🛡️ 1. EL NUEVO FILTRO: Ahora aceptamos DOCUMENTOS
         const tiposPermitidos = [MessageTypes.TEXT, 'chat', MessageTypes.DOCUMENT];
         if (!tiposPermitidos.includes(msg.type)) return;
 
@@ -156,15 +169,14 @@ async function procesarMensaje(msg) {
         let fetchOptions = {
             method: 'POST',
             headers: { 'x-api-key': apiKey }
-            // body se asignará más abajo
         };
 
-        // 📦 2. MANEJO DE ARCHIVOS ADJUNTOS
+        // 📦 MANEJO DE ARCHIVOS ADJUNTOS
         let isDocument = msg.hasMedia && msg.type === MessageTypes.DOCUMENT;
         
         if (isDocument) {
-            // Semáforo de RAM: Prevenir OOM (Out Of Memory)
             if (descargasActivas >= MAX_DESCARGAS) {
+                botMessagesIgnoreList.add(`${chatId}_⏳ El sistema está muy concurrido procesando otros archivos. Por favor, intenta enviar tu documento en un minuto.`);
                 await msg.reply("⏳ El sistema está muy concurrido procesando otros archivos. Por favor, intenta enviar tu documento en un minuto.");
                 return;
             }
@@ -175,47 +187,42 @@ async function procesarMensaje(msg) {
             try {
                 const media = await msg.downloadMedia();
 
-                // Validación estricta: Solo PDFs
                 if (!media || media.mimetype !== 'application/pdf') {
+                    botMessagesIgnoreList.add(`${chatId}_⚠️ Por razones de compatibilidad, el sistema médico solo acepta archivos en formato PDF.`);
                     await msg.reply("⚠️ Por razones de compatibilidad, el sistema médico solo acepta archivos en formato PDF.");
                     descargasActivas--;
                     return;
                 }
 
-                // Construir FormData nativo (Requiere Node.js 18+)
                 const formData = new FormData();
-                formData.append('from_id', chat.id._serialized || chat.id);
+                formData.append('from_id', chatId); 
                 formData.append('chat_name', chat.name || "Desconocido");
-                formData.append('body', msg.body || ''); // Por si enviaron texto junto al PDF
+                formData.append('body', msg.body || ''); 
                 formData.append('timestamp', msg.timestamp);
 
-                // Convertir Base64 a Blob para enviarlo como archivo real
                 const buffer = Buffer.from(media.data, 'base64');
                 const blob = new Blob([buffer], { type: media.mimetype });
                 formData.append('file', blob, media.filename || 'documento.pdf');
 
                 fetchOptions.body = formData;
-                // No configuramos 'Content-Type', fetch lo hace automáticamente para FormData
-                
-                // Cambiamos la ruta destino
-                targetUrl = `${baseUrl.replace(/\/$/, '')}/upload/pdf-whatsapp`; 
+                targetUrl = `${baseUrl.replace(/\/$/, '')}/api/bot/upload/pdf-whatsapp`; 
 
             } catch (error) {
                 console.error("❌ Error procesando el PDF en memoria:", error);
+                botMessagesIgnoreList.add(`${chatId}_❌ Ocurrió un error al procesar tu archivo. Inténtalo de nuevo.`);
                 await msg.reply("❌ Ocurrió un error al procesar tu archivo. Inténtalo de nuevo.");
                 descargasActivas--;
                 return;
             }
             
-            // Liberamos el slot de descarga
             descargasActivas--;
             console.log(`✅ Archivo preparado. Enviando a FastAPI...`);
 
         } else {
-            // 📝 3. MANEJO DE TEXTO NORMAL
+            // 📝 MANEJO DE TEXTO NORMAL
             fetchOptions.headers['Content-Type'] = 'application/json';
             fetchOptions.body = JSON.stringify({
-                from_id: chat.id._serialized || chat.id,
+                from_id: chatId,
                 body: msg.body,
                 type: msg.type,
                 timestamp: msg.timestamp,
@@ -223,14 +230,13 @@ async function procesarMensaje(msg) {
             });
         }
 
-        // ⏱️ 4. TIMEOUT INTELIGENTE
-        // Le damos 45 segundos si es archivo, 15 segundos si es texto normal
+        // ⏱️ TIMEOUT INTELIGENTE
         const controller = new AbortController();
         const timeoutDuration = isDocument ? 45000 : 15000; 
         const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
         fetchOptions.signal = controller.signal;
 
-        // 🚀 5. DISPARO AL BACKEND
+        // 🚀 DISPARO AL BACKEND
         const response = await fetch(targetUrl, fetchOptions);
         clearTimeout(timeoutId);
 
@@ -239,22 +245,53 @@ async function procesarMensaje(msg) {
             return;
         }
 
-        const data = await response.json();
+       const data = await response.json();
 
-        // Respuesta opcional desde FastAPI
-        if (data.responder && data.texto) {
+        // 🖼️ NUEVO: Entrega de Imagen con Texto (Panel de Bienvenida)
+        if (data.enviar_imagen && data.imagen_url) {
+            try {
+                console.log(`🖼️ Descargando imagen estática: ${data.imagen_url}`);
+                const mediaImg = await MessageMedia.fromUrl(data.imagen_url, { unsafeMimeTypes: true });
+                
+                // Registramos el texto en el escudo antiecos para evitar respuestas infinitas
+                botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
+                
+                // Enviamos la imagen y usamos el texto formateado como su "pie de foto" (caption)
+                await chat.sendMessage(mediaImg, { caption: data.texto });
+                console.log(`    ✅ Panel de bienvenida enviado con imagen y fuente especial.`);
+            } catch (imgError) {
+                console.error(`❌ Error obteniendo la imagen de /static/logo.png:`, imgError.message);
+                // Respaldo de seguridad: Si el servidor web falla en entregar la imagen, mandamos solo el texto
+                botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
+                await msg.reply(data.texto);
+            }
+        } 
+        // 💬 Respuesta de texto normal
+        else if (data.responder && data.texto) {
+            botMessagesIgnoreList.add(`${chatId}_${data.texto}`);
             await msg.reply(data.texto);
             console.log(`    ✅ Respuesta enviada al usuario.`);
         }
 
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            console.error('⏱️ Timeout: El backend tardó demasiado en responder.');
-        } else {
-            console.error(`❌ Error en procesarMensaje: ${error.message}`);
+        // 📄 Entrega de documentos remotos desde Google Drive
+        if (data.enviar_documento && data.documento_url) {
+            try {
+                console.log(`📥 Descargando documento solicitado desde Drive para transmisión directa...`);
+                const mediaDoc = await MessageMedia.fromUrl(data.documento_url, { unsafeMimeTypes: true });
+                if (data.documento_nombre) {
+                    mediaDoc.filename = data.documento_nombre;
+                }
+                await chat.sendMessage(mediaDoc);
+                console.log(`    ✅ Documento PDF transmitido exitosamente.`);
+            } catch (docError) {
+                console.error(`❌ Error transmitiendo el documento de Drive:`, docError.message);
+            }
         }
+
+        } catch (error) {
+        console.error("❌ Error general procesando el mensaje:", error);
     }
-}
+} 
 
 // ==========================================
 // EVENTOS
@@ -273,8 +310,8 @@ client.on('authenticated', () => {
     qrData = null;
 });
 
-client.on('message',        async msg => { await procesarMensaje(msg); });
-client.on('message_create', async msg => { if (msg.fromMe) await procesarMensaje(msg); });
+// El bot ahora solo escucha mensajes entrantes directos del usuario externo
+client.on('message', async msg => { await procesarMensaje(msg); });
 
 client.on('ready', () => {
     botReady = true;
