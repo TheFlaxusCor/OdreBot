@@ -163,28 +163,32 @@ async function procesarMensaje(msg) {
         // ==========================================
         // 🚀 INTERCEPCIÓN LOCAL: PANEL DE BIENVENIDA
         // ==========================================
-        if (cuerpoMensaje === 'bot' || cuerpoMensaje === '/bot') {
+if (cuerpoMensaje === 'bot' || cuerpoMensaje === '/bot') {
             console.log(`\n🤖 [LOCAL] Comando de panel detectado en ${chatId}`);
             
-            // Reescrito en un formato inmune al auto-formateo de VS Code
-            const textoPanel = [
-                "```",
-                "╔══════════════════════════════╗",
-                "║  🤖 SISTEMA MÉDICO ODREKAO   ║",
-                "╚══════════════════════════════╝",
-                "",
-                "Bienvenido al panel central.",
-                "Selecciona una de las siguientes ",
-                "operaciones disponibles:",
-                "",
-                "• /vincular [codigo]",
-                "• /archivos [hospital/morgue]",
-                "• /descargar \"Nombre Exacto\"",
-                "• /eliminar \"Nombre Exacto\"",
-                "",
-                "Sistema en línea y operando.",
-                "```"
-            ].join('\n');
+            // El uso de backticks (`) permite que el texto respete los saltos de línea y símbolos.
+            const textoPanel = `(Welcome )
+
+֩    ׄ    ✦    ۪    𝐯𝐢𝐜𝐞𝐦𝐢𝐧𝐢𝐬𝐭𝐞𝐫𝐢𝐨 𝐝𝐞 𝐬𝐚𝐥𝐮𝐝    🌘🎗️    ׄ    ׅ
+
+╭┄───── ─────┄
+╰⁠►°𝒸𝑜𝓃𝓈𝑜𝓁𝒶 𝒹𝑒 𝒸𝑜𝓂𝒶𝓃𝒹𝑜𝜗𝜚•
+En línea: 𝙩𝙚𝙡𝙚𝙘𝙤𝙢𝙪𝙣𝙞𝙘𝙖𝙙𝙤𝙧 
+    
+          ╭─ִ╌─꯭ׄ──ׂ─۪─ׂ┈──┄┤
+
+ ᥬ🌕• /vincular [codigo]᭄ 
+
+ ᥬ🌕᭄• /archivos [hospital/morgue]
+
+ ᥬ🌕• /descargar "Nombre Exacto"
+
+ ᥬ🌕• /eliminar "Nombre Exacto"
+
+├─┄──꯭ׄ──ׂ┈──ׄ─ׅ╌╯ ׄ
+
+𝓗𝓸𝓼𝓹𝓲𝓽𝓪𝓵 𝓬𝓮𝓷𝓽𝓻𝓪𝓵
+          ꨣ┄──᪶─ᷓ─۫┄ ۪ꉹ ֺ 🏥🐍 ۫ ꒱꒱ ┄۫──ᷓ─᪶─┄ ꨣ`;
             
             const rutaImagenLocal = path.join(__dirname, 'logo.png');
 
