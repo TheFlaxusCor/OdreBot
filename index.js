@@ -163,7 +163,7 @@ async function procesarMensaje(msg) {
         // ==========================================
         // 🚀 INTERCEPCIÓN LOCAL: PANEL DE BIENVENIDA
         // ==========================================
-if (cuerpoMensaje === 'bot' || cuerpoMensaje === '/bot') {
+if (cuerpoMensaje === 'hospital' || cuerpoMensaje === '/bot') {
             console.log(`\n🤖 [LOCAL] Comando de panel detectado en ${chatId}`);
             
             // El uso de backticks (`) permite que el texto respete los saltos de línea y símbolos.
