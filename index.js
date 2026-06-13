@@ -81,6 +81,7 @@ const promesaConTimeout = (promesa, tiempoMs) => {
     });
     return Promise.race([promesa, timeout]).finally(() => clearTimeout(timeoutId));
 };
+
 // ==========================================
 // 🛠️ CLIENTE OPTIMIZADO (PERMITIENDO IMÁGENES)
 // ==========================================
@@ -108,7 +109,6 @@ const client = new Client({
             '--metrics-recording-only', 
             '--mute-audio',
             '--safebrowsing-disable-auto-update', 
-            // 🚨 ELIMINAMOS --disable-images y blink-settings
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ],
         protocolTimeout: 300000
@@ -163,10 +163,9 @@ async function procesarMensaje(msg) {
         // ==========================================
         // 🚀 INTERCEPCIÓN LOCAL: PANEL DE BIENVENIDA
         // ==========================================
-if (cuerpoMensaje === '/hospital' || cuerpoMensaje === '/bot') {
+        if (cuerpoMensaje === '/hospital' || cuerpoMensaje === '/bot') {
             console.log(`\n🤖 [LOCAL] Comando de panel detectado en ${chatId}`);
             
-            // El uso de backticks (`) permite que el texto respete los saltos de línea y símbolos.
             const textoPanel = `(Welcome )
 
 ֩    ׄ    ✦    ۪    𝐯𝐢𝐜𝐞𝐦𝐢𝐧𝐢𝐬𝐭𝐞𝐫𝐢𝐨 𝐝𝐞 𝐬𝐚𝐥𝐮𝐝    🌘🎗️    ׄ    ׅ
@@ -207,7 +206,6 @@ En línea: 𝙩𝙚𝙡𝙚𝙘𝙤𝙢𝙪𝙣𝙞𝙘𝙖𝙙𝙤𝙧
                 console.error('❌ Error enviando panel local:', err);
             }
             
-            // 🛑 CORTAMOS AQUÍ: No enviamos este mensaje a FastAPI
             return; 
         }
 
